@@ -1,0 +1,4 @@
+simple_term_menu==1.6.1
+torch==2.0.0
+torchvision==0.15.1
+tqdm==4.65.0

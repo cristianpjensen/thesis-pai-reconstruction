@@ -2,14 +2,19 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
-from tqdm import tqdm
-from main import (
+from rich.progress import track
+from architectures import (
     GENERATORS,
     DISCRIMINATORS,
-    NUM_EPOCHS,
-    L1_LAMBDA,
-    device
 )
+
+
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+else:
+    device = torch.device("cpu")
 
 
 def train(
@@ -17,6 +22,8 @@ def train(
     val_loader: torch.utils.data.DataLoader,
     generator: str,
     discriminator: str,
+    l1_lambda: int = 100,
+    num_epochs: int = 200,
 ):
     # Generator.
     generator = GENERATORS[generator](3, 3)
@@ -42,11 +49,15 @@ def train(
     initial_datapoint = next(iter(train_loader))[0]
     img_size = initial_datapoint.shape[2]
 
-    for epoch in range(NUM_EPOCHS):
+    for epoch in range(num_epochs):
         d_losses = []
         g_losses = []
-        print(f"Epoch {epoch}")
-        for xy_concat, _ in tqdm(train_loader):
+
+        for xy_concat, _ in track(
+            train_loader,
+            description=f"[{epoch}/{num_epochs}]",
+            transient=True,
+        ):
             # Discriminator training.
             discriminator.zero_grad()
 
@@ -93,7 +104,7 @@ def train(
             g_loss = bce_loss(
                 d_result,
                 Variable(torch.ones(d_result.size(), device=device))
-            ) + L1_LAMBDA * l1_loss(y_pred, y)
+            ) + l1_lambda * l1_loss(y_pred, y)
             g_loss.backward()
             g_optimizer.step()
 
@@ -101,7 +112,7 @@ def train(
 
         print("[%d/%d] - d_loss: %.3f, g_loss: %.3f" % (
             epoch + 1,
-            NUM_EPOCHS,
+            num_epochs,
             torch.mean(torch.FloatTensor(d_losses)),
             torch.mean(torch.FloatTensor(g_losses)),
         ))

@@ -205,5 +205,3 @@ class Patch286Discriminator(nn.Module):
     def forward(self, x, y):
         xy_concat = torch.cat([x, y], dim=1)
         return self.dis(xy_concat)
-
-

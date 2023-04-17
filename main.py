@@ -1,65 +1,83 @@
-import torch
 from simple_term_menu import TerminalMenu
-from pix2pix import (
-    GeneratorEncoderDecoder,
-    GeneratorUNet,
-    PixelDiscriminator,
-    Patch16Discriminator,
-    Patch70Discriminator,
-    Patch286Discriminator,
-)
+from glob import glob
+from rich.console import Console
+from rich.text import Text
+from rich.prompt import Prompt
+import re
 from train import train
+from architectures import GENERATORS, DISCRIMINATORS
 import utils
 
 
-# Generators and disciminators that can be used for the conditional GAN.
-GENERATORS = {
-    "Encoder-Decoder": GeneratorEncoderDecoder,
-    "U-net": GeneratorUNet,
-}
-
-DISCRIMINATORS = {
-    "PixelGAN": PixelDiscriminator,
-    "PatchGAN 16x16": Patch16Discriminator,
-    "PatchGAN 70x70": Patch70Discriminator,
-    "PatchGAN 286x286": Patch286Discriminator,
-}
-
-# Hyperparameters
-INPUT_SIZE = 256
-NUM_EPOCHS = 200
-L1_LAMBDA = 100
+console = Console()
 
 
-if torch.cuda.is_available():
-    print("Using CUDA device...\n")
-    device = torch.device("cuda")
-elif torch.backends.mps.is_available():
-    print("Using MPS device...\n")
-    device = torch.device("mps")
-else:
-    print("Using CPU device...\n")
-    device = torch.device("cpu")
+def print_property(property: str, value: str):
+    text = Text()
+    text.append(f"{property}: ")
+    text.append(value, style="bold blue")
+    console.print(text)
+
+
+def prompt_int(prompt: str, default: int):
+    while True:
+        value = Prompt.ask(
+            f"{prompt} [bold blue](default: {default})",
+            default=default,
+        )
+
+        if re.match("[-+]?\\d+$", value) is not None:
+            return int(value)
+
+        console.print(f"[red]{value} is not an integer!")
 
 
 def main():
+    # Let user make choices about architecture.
+
+    # Choose generator.
     generator_enum = list(GENERATORS.keys())
     menu = TerminalMenu(generator_enum, title="Generator")
     generator_model = generator_enum[menu.show()]
-    print(generator_model)
+    print_property("Generator", generator_model)
 
+    # Choose discriminator.
     discriminator_enum = list(DISCRIMINATORS.keys())
-    menu = TerminalMenu(discriminator_enum, title="\nDiscriminator")
+    menu = TerminalMenu(discriminator_enum, title="Discriminator")
     discriminator_model = discriminator_enum[menu.show()]
-    print(discriminator_model, "\n")
+    print_property("Discriminator", discriminator_model)
 
-    train_loader, val_loader = utils.load_dataset(
-        "./data/maps/",
-        ["train", "val"],
-        INPUT_SIZE,
+    console.print(
+        "NOTE: The directory must be in `data/` and",
+        "contain `train` and `val` directories.",
+        style="grey50"
     )
 
-    train(train_loader, val_loader, generator_model, discriminator_model)
+    # Choose data location.
+    directories = [x.split("/")[-1] for x in glob("./data/*")]
+    menu = TerminalMenu(directories, title="Data directory")
+    directory = directories[menu.show()]
+    print_property("Data directory", directory)
+
+    l1_lambda = prompt_int("L1 lambda", 100)
+    num_epochs = prompt_int("Epochs", 200)
+
+    # Load data.
+    train_loader, val_loader = utils.load_dataset(
+        f"./data/{directory}/",
+        ["train", "val"],
+        256,
+    )
+
+    # Train chosen architecture on specified data.
+    train(
+        train_loader,
+        val_loader,
+        generator_model,
+        discriminator_model,
+        l1_lambda=l1_lambda,
+        num_epochs=num_epochs,
+    )
 
 
 if __name__ == "__main__":

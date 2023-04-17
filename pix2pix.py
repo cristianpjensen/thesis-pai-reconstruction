@@ -2,11 +2,7 @@
 (Isola et al., 2018)."""
 
 import torch
-from torchvision import datasets, transforms
 import torch.nn as nn
-import torch.optim as optim
-from torch.autograd import Variable
-from tqdm import tqdm
 from parts import Downsample, Upsample, UpsampleDropout
 
 

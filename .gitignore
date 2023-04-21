@@ -130,3 +130,5 @@ dmypy.json
 
 data/
 .DS_Store
+
+thesis_data.zip

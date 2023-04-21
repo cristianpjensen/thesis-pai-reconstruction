@@ -21,7 +21,6 @@ class Downsample(nn.Module):
         super().__init__()
 
         self.down = nn.Sequential(
-            nn.LeakyReLU(0.2, inplace=False),
             nn.Conv2d(
                 in_channels,
                 out_channels,
@@ -30,6 +29,7 @@ class Downsample(nn.Module):
                 padding=padding,
             ),
             nn.BatchNorm2d(out_channels),
+            nn.LeakyReLU(0.2, inplace=False),
         )
 
     def forward(self, x):
@@ -43,7 +43,6 @@ class UpsampleDropout(nn.Module):
         super().__init__()
 
         self.up = nn.Sequential(
-            nn.ReLU(inplace=False),
             nn.ConvTranspose2d(
                 in_channels,
                 out_channels,
@@ -53,6 +52,7 @@ class UpsampleDropout(nn.Module):
             ),
             nn.BatchNorm2d(out_channels),
             nn.Dropout(0.5),
+            nn.ReLU(inplace=False),
         )
 
     def forward(self, x):

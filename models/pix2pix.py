@@ -3,7 +3,7 @@
 
 import torch
 import torch.nn as nn
-from parts import Downsample, Upsample, UpsampleDropout
+from models.layers.pix2pix import Downsample, Upsample, UpsampleDropout
 
 
 class GeneratorEncoderDecoder(nn.Module):

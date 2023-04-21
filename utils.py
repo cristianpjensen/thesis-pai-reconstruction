@@ -34,7 +34,7 @@ def load_dataset(
 
         data_loader = DataLoader(
             dataset,
-            batch_size=1,
+            batch_size=2,
             shuffle=False,
         )
         data_loaders.append(data_loader)

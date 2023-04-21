@@ -1,7 +1,6 @@
 from simple_term_menu import TerminalMenu
 from glob import glob
 from rich.console import Console
-from rich.text import Text
 from rich.prompt import Prompt
 import re
 from train import train
@@ -13,18 +12,18 @@ console = Console()
 
 
 def print_property(property: str, value: str):
-    text = Text()
-    text.append(f"{property}: ")
-    text.append(value, style="bold blue")
-    console.print(text)
+    console.print(f"{property}: [bold blue]{value}")
 
 
 def prompt_int(prompt: str, default: int):
     while True:
         value = Prompt.ask(
-            f"{prompt} [bold blue](default: {default})",
+            f"{prompt} (default: {default})",
             default=default,
         )
+
+        if value == default:
+            return default
 
         if re.match("[-+]?\\d+$", value) is not None:
             return int(value)
@@ -58,9 +57,11 @@ def main():
     menu = TerminalMenu(directories, title="Data directory")
     directory = directories[menu.show()]
     print_property("Data directory", directory)
+    print()
 
     l1_lambda = prompt_int("L1 lambda", 100)
     num_epochs = prompt_int("Epochs", 200)
+    print()
 
     # Load data.
     train_loader, val_loader = utils.load_dataset(

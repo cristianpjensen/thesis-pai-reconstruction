@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
+from torchvision import transforms
+from utils import InputLabelImageDataset
 from rich.progress import track
 from architectures import (
     GENERATORS,
@@ -18,8 +20,8 @@ else:
 
 
 def train(
-    train_loader: torch.utils.data.DataLoader,
-    val_loader: torch.utils.data.DataLoader,
+    input_dir: str,
+    label_dir: str,
     generator: str,
     discriminator: str,
     l1_lambda: int = 50,
@@ -36,7 +38,7 @@ def train(
     discriminator.train()
 
     # Loss fuctions. BCE for discriminator and L1 for generator.
-    bce_loss = nn.BCELoss().to(device)
+    bce_loss = nn.BCEWithLogitsLoss().to(device)
     l1_loss = nn.L1Loss().to(device)
 
     # Optimizer. Initialized to be the same as the baseline.
@@ -53,27 +55,30 @@ def train(
         eps=1e-07,
     )
 
-    # Get image size so all images have the same size. It is also used in
-    # separating the input from the label image, since they are placed
-    # horizontally next to each other. We assume the images are square.
-    initial_datapoint = next(iter(train_loader))[0]
-    img_size = initial_datapoint.shape[2]
+    # Resize to 256 x 256 image
+    transform = transforms.Compose([
+        transforms.Resize((256, 256), antialias=True),
+        transforms.ConvertImageDtype(torch.float32),
+    ])
+
+    dataset = InputLabelImageDataset(
+        input_dir,
+        label_dir,
+        batch_size=2,
+        transform=transform,
+    )
 
     for epoch in range(num_epochs):
         d_losses = []
         g_losses = []
 
-        for xy_concat, _ in track(
-            train_loader,
-            description=f"[{epoch}/{num_epochs}]",
+        for x, y in track(
+            dataset,
+            description=f"[{epoch+1}/{num_epochs}]",
             transient=True,
         ):
             # Discriminator training.
             discriminator.zero_grad()
-
-            # Separate input and label image. Left = input, right = label.
-            x = xy_concat[:, :, :, :img_size].to(device)
-            y = xy_concat[:, :, :, img_size:].to(device)
 
             x, y = Variable(x).to(device), Variable(y).to(device)
             y_pred = generator(x)

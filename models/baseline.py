@@ -164,8 +164,9 @@ class Patch70Discriminator(nn.Module):
                 padding=0,
                 bias=False
             ),  # 30, 1
-            nn.Sigmoid(),
         )
+
+        self.net.apply(self.init_weights)
 
     def init_weights(self, m: nn.Module):
         if isinstance(m, nn.Conv2d):

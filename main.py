@@ -59,8 +59,8 @@ def main():
     print_property("Data directory", directory)
     print()
 
-    l1_lambda = prompt_int("L1 lambda", 100)
-    num_epochs = prompt_int("Epochs", 200)
+    l1_lambda = prompt_int("L1 lambda", 50)
+    num_epochs = prompt_int("Epochs", 20)
     print()
 
     # Load data.

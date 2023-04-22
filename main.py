@@ -2,6 +2,7 @@ from simple_term_menu import TerminalMenu
 from natsort import natsorted
 from rich.console import Console
 from rich.prompt import Prompt
+from datetime import datetime
 import re
 import os
 from train import train
@@ -12,17 +13,17 @@ console = Console()
 
 
 def print_property(property: str, value: str):
-    console.print(f"{property}: [bold blue]{value}")
+    console.print(f"{property}: [sea_green1]{value}")
 
 
 def prompt_int(prompt: str, default: int):
     while True:
         value = Prompt.ask(
-            f"{prompt} (default: {default})",
-            default=default,
+            f"{prompt}",
+            default=str(default),
         )
 
-        if value == default:
+        if value == str(default):
             return default
 
         if re.match("[-+]?\\d+$", value) is not None:
@@ -77,6 +78,12 @@ def main():
     menu = TerminalMenu(directories, title="Label directory")
     label_dir = directories[menu.show()]
     print_property("Label directory", label_dir)
+
+    # Choose name for data that will be used in the name of the output file.
+    data_name = Prompt.ask(
+        "Data name used for output filename",
+        default=data_dir
+    )
     print()
 
     input_dir = os.path.join("./data", data_dir, input_dir)
@@ -87,6 +94,19 @@ def main():
     num_epochs = prompt_int("Epochs", 20)
     print()
 
+    id = datetime.now().strftime("%Y%m%d%H%M")
+    filename = "%s_gen:%s_dis:%s_data:%s_l1:%d_epochs:%d" % (
+        id,
+        GENERATORS[generator_model]["tag"],
+        DISCRIMINATORS[discriminator_model]["tag"],
+        data_name,
+        l1_lambda,
+        num_epochs,
+    )
+
+    console.print(f'Output filename: [bold orange3]{filename}')
+    print()
+
     # Train chosen architecture on specified data.
     train(
         input_dir,
@@ -95,6 +115,7 @@ def main():
         discriminator_model,
         l1_lambda=l1_lambda,
         num_epochs=num_epochs,
+        filename=filename,
     )
 
 

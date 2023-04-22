@@ -8,6 +8,7 @@ from torchmetrics import (
     PeakSignalNoiseRatio,
 )
 from rich.progress import track
+import os
 from dataset import SplitImageDataset, ImageDataset
 from architectures import (
     GENERATORS,
@@ -60,18 +61,14 @@ def train(
     discriminator: str,
     l1_lambda: int = 50,
     num_epochs: int = 20,
+    filename: str | None = None,
 ):
-    # Define generator.
-    generator = GENERATORS[generator](3, 3).to(device)
-    discriminator = DISCRIMINATORS[discriminator](3).to(device)
+    generator = GENERATORS[generator]["model"](3, 3).to(device)
+    discriminator = DISCRIMINATORS[discriminator]["model"](3).to(device)
 
-    # Define discriminator.
-
-    # Loss fuctions. BCE for discriminator and L1 for generator.
     bce_loss = nn.BCEWithLogitsLoss().to(device)
     l1_loss = nn.L1Loss().to(device)
 
-    # Optimizer. Initialized to be the same as the baseline.
     g_optimizer = optim.Adam(
         generator.parameters(),
         lr=2e-4,
@@ -85,7 +82,6 @@ def train(
         eps=1e-07,
     )
 
-    # Resize to 256 x 256 images.
     transform = transforms.Compose([
         transforms.Resize((256, 256), antialias=True),
         transforms.ConvertImageDtype(torch.float32),
@@ -99,11 +95,19 @@ def train(
         transform=transform,
     )
 
+    training_data_output = (
+        "epoch,discriminator_loss,generator_loss," +
+        "train_ssim,train_psnr,val_ssim,val_psnr\n"
+    )
+
     for epoch in range(num_epochs):
         d_losses = []
         g_losses = []
         ssims = []
         psnrs = []
+
+        generator.train()
+        discriminator.train()
 
         for x, y in track(
             dataset.train,
@@ -112,10 +116,7 @@ def train(
         ):
             x, y = Variable(x).to(device), Variable(y).to(device)
 
-            generator.train()
-            discriminator.train()
-
-            # Discriminator training.
+            # Discriminator training
             discriminator.zero_grad(set_to_none=True)
             y_pred = generator(x)
 
@@ -141,7 +142,7 @@ def train(
             d_loss.backward()
             d_optimizer.step()
 
-            # Generator training.
+            # Generator training
             generator.zero_grad(set_to_none=True)
             y_pred = generator(x)
             d_result = discriminator(x, y_pred).squeeze()
@@ -162,15 +163,37 @@ def train(
             ssims.append(ssim(y_pred, y))
             psnrs.append(psnr(y_pred, y))
 
+        d_loss = torch.mean(torch.FloatTensor(d_losses))
+        g_loss = torch.mean(torch.FloatTensor(g_losses))
+        train_ssim = torch.mean(torch.FloatTensor(ssims))
+        train_psnr = torch.mean(torch.FloatTensor(psnrs))
         val_ssim, val_psnr = validate(generator, dataset.validation)
 
         print("[%d/%d] d_loss: %.3f, g_loss: %.3f, ssim: %.3f, psnr: %.3f, val_ssim: %.3f, val_psnr: %.3f" % (
             epoch + 1,
             num_epochs,
-            torch.mean(torch.FloatTensor(d_losses)),
-            torch.mean(torch.FloatTensor(g_losses)),
-            torch.mean(torch.FloatTensor(ssims)),
-            torch.mean(torch.FloatTensor(psnrs)),
+            d_loss,
+            g_loss,
+            train_ssim,
+            train_psnr,
             val_ssim,
             val_psnr,
         ))
+
+        training_data_output += "%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f\n" % (
+            epoch + 1,
+            d_loss,
+            g_loss,
+            train_ssim,
+            train_psnr,
+            val_ssim,
+            val_psnr,
+        )
+
+    with open(os.path.join("output", f"{filename}.csv"), "w") as f:
+        f.write(training_data_output)
+
+    torch.save({
+        "generator": generator.state_dict(),
+        "discriminator": discriminator.state_dict(),
+    }, os.path.join("checkpoints", f"{filename}.pt"))

@@ -3,6 +3,10 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
 from torchvision import transforms
+from torchmetrics import (
+    StructuralSimilarityIndexMeasure,
+    PeakSignalNoiseRatio,
+)
 from utils import InputLabelImageDataset
 from rich.progress import track
 from architectures import (
@@ -27,12 +31,12 @@ def train(
     l1_lambda: int = 50,
     num_epochs: int = 20,
 ):
-    # Generator.
+    # Define generator.
     generator = GENERATORS[generator](3, 3)
     generator.to(device)
     generator.train()
 
-    # Discriminator.
+    # Define discriminator.
     discriminator = DISCRIMINATORS[discriminator](3)
     discriminator.to(device)
     discriminator.train()
@@ -40,6 +44,10 @@ def train(
     # Loss fuctions. BCE for discriminator and L1 for generator.
     bce_loss = nn.BCEWithLogitsLoss().to(device)
     l1_loss = nn.L1Loss().to(device)
+
+    # Performance metrics used for reporting.
+    ssim = StructuralSimilarityIndexMeasure(data_range=1.0).to(device)
+    psnr = PeakSignalNoiseRatio(data_range=1.0).to(device)
 
     # Optimizer. Initialized to be the same as the baseline.
     g_optimizer = optim.Adam(
@@ -55,7 +63,7 @@ def train(
         eps=1e-07,
     )
 
-    # Resize to 256 x 256 image
+    # Resize to 256 x 256 images.
     transform = transforms.Compose([
         transforms.Resize((256, 256), antialias=True),
         transforms.ConvertImageDtype(torch.float32),
@@ -71,16 +79,18 @@ def train(
     for epoch in range(num_epochs):
         d_losses = []
         g_losses = []
+        ssims = []
+        psnrs = []
 
         for x, y in track(
             dataset,
             description=f"[{epoch+1}/{num_epochs}]",
             transient=True,
         ):
+            x, y = Variable(x).to(device), Variable(y).to(device)
+
             # Discriminator training.
             discriminator.zero_grad()
-
-            x, y = Variable(x).to(device), Variable(y).to(device)
             y_pred = generator(x)
 
             # The discriminator should predict all ones for "real" images, i.e.
@@ -105,11 +115,8 @@ def train(
             d_loss.backward()
             d_optimizer.step()
 
-            d_losses.append(d_loss.item())
-
             # Generator training.
             generator.zero_grad()
-
             y_pred = generator(x)
             d_result = discriminator(x, y_pred).squeeze()
 
@@ -123,11 +130,17 @@ def train(
             g_loss.backward()
             g_optimizer.step()
 
+            # Keep track of loss and metrics.
+            d_losses.append(d_loss.item())
             g_losses.append(g_loss.item())
+            ssims.append(ssim(y_pred, y))
+            psnrs.append(psnr(y_pred, y))
 
-        print("[%d/%d] - d_loss: %.3f, g_loss: %.3f" % (
+        print("[%d/%d] d_loss: %.3f, g_loss: %.3f, SSIM: %.3f, pSNR: %.3f" % (
             epoch + 1,
             num_epochs,
             torch.mean(torch.FloatTensor(d_losses)),
             torch.mean(torch.FloatTensor(g_losses)),
+            torch.mean(torch.FloatTensor(ssims)),
+            torch.mean(torch.FloatTensor(psnrs)),
         ))

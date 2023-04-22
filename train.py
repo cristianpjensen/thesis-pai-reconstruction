@@ -7,8 +7,8 @@ from torchmetrics import (
     StructuralSimilarityIndexMeasure,
     PeakSignalNoiseRatio,
 )
-from utils import InputLabelImageDataset
 from rich.progress import track
+from dataset import SplitImageDataset, ImageDataset
 from architectures import (
     GENERATORS,
     DISCRIMINATORS,
@@ -22,6 +22,36 @@ elif torch.backends.mps.is_available():
 else:
     device = torch.device("cpu")
 
+torch.manual_seed(42)
+
+# Performance metrics used for report.
+ssim = StructuralSimilarityIndexMeasure(data_range=1.0).to(device)
+psnr = PeakSignalNoiseRatio(data_range=1.0).to(device)
+
+
+def validate(
+    generator: nn.Module,
+    val_data: ImageDataset
+) -> (torch.Tensor, torch.Tensor):
+    """Evaluates the generator on the validation data and returns the mean SSIM
+    and pSNR."""
+
+    generator.eval()
+    ssims = []
+    psnrs = []
+
+    with torch.no_grad():
+        for x, y in val_data:
+            x, y = Variable(x).to(device), Variable(y).to(device)
+            y_pred = generator(x)
+            ssims.append(ssim(y_pred, y))
+            psnrs.append(psnr(y_pred, y))
+
+    return (
+        torch.mean(torch.FloatTensor(ssims)),
+        torch.mean(torch.FloatTensor(psnrs)),
+    )
+
 
 def train(
     input_dir: str,
@@ -32,22 +62,14 @@ def train(
     num_epochs: int = 20,
 ):
     # Define generator.
-    generator = GENERATORS[generator](3, 3)
-    generator.to(device)
-    generator.train()
+    generator = GENERATORS[generator](3, 3).to(device)
+    discriminator = DISCRIMINATORS[discriminator](3).to(device)
 
     # Define discriminator.
-    discriminator = DISCRIMINATORS[discriminator](3)
-    discriminator.to(device)
-    discriminator.train()
 
     # Loss fuctions. BCE for discriminator and L1 for generator.
     bce_loss = nn.BCEWithLogitsLoss().to(device)
     l1_loss = nn.L1Loss().to(device)
-
-    # Performance metrics used for reporting.
-    ssim = StructuralSimilarityIndexMeasure(data_range=1.0).to(device)
-    psnr = PeakSignalNoiseRatio(data_range=1.0).to(device)
 
     # Optimizer. Initialized to be the same as the baseline.
     g_optimizer = optim.Adam(
@@ -69,10 +91,11 @@ def train(
         transforms.ConvertImageDtype(torch.float32),
     ])
 
-    dataset = InputLabelImageDataset(
+    dataset = SplitImageDataset(
         input_dir,
         label_dir,
         batch_size=2,
+        val_size=0.2,
         transform=transform,
     )
 
@@ -83,14 +106,17 @@ def train(
         psnrs = []
 
         for x, y in track(
-            dataset,
+            dataset.train,
             description=f"[{epoch+1}/{num_epochs}]",
             transient=True,
         ):
             x, y = Variable(x).to(device), Variable(y).to(device)
 
+            generator.train()
+            discriminator.train()
+
             # Discriminator training.
-            discriminator.zero_grad()
+            discriminator.zero_grad(set_to_none=True)
             y_pred = generator(x)
 
             # The discriminator should predict all ones for "real" images, i.e.
@@ -116,7 +142,7 @@ def train(
             d_optimizer.step()
 
             # Generator training.
-            generator.zero_grad()
+            generator.zero_grad(set_to_none=True)
             y_pred = generator(x)
             d_result = discriminator(x, y_pred).squeeze()
 
@@ -125,7 +151,7 @@ def train(
             # resembles the real image (L1).
             g_loss = bce_loss(
                 d_result,
-                Variable(torch.ones(d_result.size(), device=device))
+                Variable(torch.ones(d_result.shape, device=device))
             ) + l1_lambda * l1_loss(y_pred, y)
             g_loss.backward()
             g_optimizer.step()
@@ -136,11 +162,15 @@ def train(
             ssims.append(ssim(y_pred, y))
             psnrs.append(psnr(y_pred, y))
 
-        print("[%d/%d] d_loss: %.3f, g_loss: %.3f, SSIM: %.3f, pSNR: %.3f" % (
+        val_ssim, val_psnr = validate(generator, dataset.validation)
+
+        print("[%d/%d] d_loss: %.3f, g_loss: %.3f, ssim: %.3f, psnr: %.3f, val_ssim: %.3f, val_psnr: %.3f" % (
             epoch + 1,
             num_epochs,
             torch.mean(torch.FloatTensor(d_losses)),
             torch.mean(torch.FloatTensor(g_losses)),
             torch.mean(torch.FloatTensor(ssims)),
             torch.mean(torch.FloatTensor(psnrs)),
+            val_ssim,
+            val_psnr,
         ))

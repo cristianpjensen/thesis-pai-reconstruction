@@ -125,4 +125,7 @@ class ImageDataset(Dataset):
             label_tensors.append(label_tensor)
 
         # Stack tensors.
-        return torch.stack(input_tensors), torch.stack(label_tensors)
+        return (
+            torch.stack(input_tensors).to(memory_format=torch.channels_last),
+            torch.stack(label_tensors).to(memory_format=torch.channels_last),
+        )

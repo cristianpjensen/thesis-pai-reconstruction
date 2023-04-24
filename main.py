@@ -111,8 +111,8 @@ def main():
     train(
         input_dir,
         label_dir,
-        generator_model,
-        discriminator_model,
+        GENERATORS[generator_model]["model"](3, 3),
+        DISCRIMINATORS[discriminator_model]["model"](3),
         l1_lambda=l1_lambda,
         num_epochs=num_epochs,
         filename=filename,

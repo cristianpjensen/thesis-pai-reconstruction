@@ -34,7 +34,7 @@ class Downsample(nn.Module):
                     bias=False,
                 ),
                 nn.BatchNorm2d(out_channels),
-                nn.LeakyReLU(0.2),
+                # nn.LeakyReLU(0.2),
             )
         else:
             self.down = nn.Sequential(
@@ -46,7 +46,7 @@ class Downsample(nn.Module):
                     padding=padding,
                     bias=False,
                 ),
-                nn.LeakyReLU(0.2),
+                # nn.LeakyReLU(0.2),
             )
 
         self.down.apply(self.init_weights)

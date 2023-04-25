@@ -132,3 +132,5 @@ data/
 .DS_Store
 
 thesis_data.zip
+lightning_logs/
+*.zip

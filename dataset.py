@@ -1,3 +1,4 @@
+import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision.io import read_image, ImageReadMode
 from torchvision import transforms
@@ -22,6 +23,7 @@ class ImageDataModule(pl.LightningDataModule):
 
         self.transform = transforms.Compose([
             transforms.Resize((256, 256), antialias=True),
+            transforms.ConvertImageDtype(torch.float32),
         ])
 
     def _get_pairs(self):
@@ -58,6 +60,7 @@ class ImageDataModule(pl.LightningDataModule):
             ImageDataset(self.train_pairs, transform=self.transform),
             batch_size=self.batch_size,
             shuffle=False,
+            drop_last=True,
         )
 
     def val_dataloader(self):
@@ -65,6 +68,7 @@ class ImageDataModule(pl.LightningDataModule):
             ImageDataset(self.val_pairs, transform=self.transform),
             batch_size=self.batch_size,
             shuffle=False,
+            drop_last=True,
         )
 
     def test_dataloader(self):
@@ -72,6 +76,7 @@ class ImageDataModule(pl.LightningDataModule):
             ImageDataset(self.test_pairs, transform=self.transform),
             batch_size=self.batch_size,
             shuffle=False,
+            drop_last=True,
         )
 
 

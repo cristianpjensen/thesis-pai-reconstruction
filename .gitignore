@@ -134,3 +134,7 @@ data/
 thesis_data.zip
 lightning_logs/
 *.zip
+
+checkpoints/
+logs/
+output/

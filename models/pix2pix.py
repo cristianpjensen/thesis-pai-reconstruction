@@ -15,11 +15,7 @@ T = TypeVar('T')
 
 
 class Pix2Pix(pl.LightningModule):
-    def __init__(
-        self,
-        name: str,
-        l1_lambda: float,
-    ):
+    def __init__(self, l1_lambda: float):
         super().__init__()
         self.save_hyperparameters()
         self.example_input_array = torch.Tensor(32, 3, 256, 256)
@@ -87,9 +83,17 @@ class Pix2Pix(pl.LightningModule):
         return pred_loss + target_loss
 
     def configure_optimizers(self):
-        opt_g = torch.optim.Adam(self.generator.parameters())
+        opt_g = torch.optim.Adam(
+            self.generator.parameters(),
+            lr=2e-4,
+            betas=(0.5, 0.999),
+            eps=1e-7,
+        )
         opt_d = torch.optim.Adam(
-            self.discriminator.parameters()
+            self.discriminator.parameters(),
+            lr=2e-4,
+            betas=(0.5, 0.999),
+            eps=1e-7,
         )
 
         return [opt_g, opt_d], []
@@ -99,6 +103,7 @@ class Pix2Pix(pl.LightningModule):
 
         # Train discriminator.
         self.toggle_optimizer(opt_d)
+        self.discriminator.zero_grad(set_to_none=True)
 
         input, target = batch
         pred = self.forward(input)
@@ -107,35 +112,34 @@ class Pix2Pix(pl.LightningModule):
         pred_label = self.discriminator(input, pred)
         d_loss = self.discriminator_loss(pred_label, target_label)
         self.log("d_loss", d_loss, prog_bar=True)
-        self.manual_backward(d_loss)
 
+        self.manual_backward(d_loss)
         opt_d.step()
-        opt_d.zero_grad()
         self.untoggle_optimizer(opt_d)
 
         # Train generator.
         self.toggle_optimizer(opt_g)
+        self.generator.zero_grad(set_to_none=True)
 
         pred = self.forward(input)
         pred_label = self.discriminator(input, pred)
         g_loss = self.generator_loss(pred, pred_label, target)
-        g_psnr = psnr(pred, target)
-        g_ssim = ssim(pred, target)
+        g_psnr = psnr(pred, target, data_range=1.0)
+        g_ssim = ssim(pred, target, data_range=1.0)
         self.log("g_loss", g_loss, prog_bar=True)
         self.log("train_ssim", g_ssim, prog_bar=True)
         self.log("train_psnr", g_psnr, prog_bar=True)
-        self.manual_backward(g_loss)
 
+        self.manual_backward(g_loss)
         opt_g.step()
-        opt_g.zero_grad()
         self.untoggle_optimizer(opt_g)
 
     def validation_step(self, batch, batch_idx):
         input, target = batch
         pred = self.forward(input)
 
-        g_psnr = psnr(pred, target)
-        g_ssim = ssim(pred, target)
+        g_psnr = psnr(pred, target, data_range=1.0)
+        g_ssim = ssim(pred, target, data_range=1.0)
 
         self.log("val_ssim", g_ssim, prog_bar=True)
         self.log("val_psnr", g_psnr, prog_bar=True)

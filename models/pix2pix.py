@@ -9,9 +9,6 @@ from torchmetrics.functional import (
     structural_similarity_index_measure as ssim,
 )
 import pytorch_lightning as pl
-from typing import TypeVar
-
-T = TypeVar('T')
 
 
 class Pix2Pix(pl.LightningModule):
@@ -35,12 +32,13 @@ class Pix2Pix(pl.LightningModule):
         pred_label: torch.Tensor,
         target: torch.Tensor,
     ) -> torch.Tensor:
-        """Loss function for generator.
+        """
+        Loss function for generator.
 
-        Args:
-            `pred`: predicted image by generator.
-            `pred_label`: predicted label of generated image by discriminator.
-            `target`: target image.
+        :param pred: Predicted image by generator.
+        :param pred_label: Predicted label of generated image by discriminator.
+        :param target: Target image.
+        :returns: Loss.
 
         """
 
@@ -59,12 +57,13 @@ class Pix2Pix(pl.LightningModule):
         pred_label: torch.Tensor,
         target_label: torch.Tensor,
     ) -> torch.Tensor:
-        """Loss function for discriminator.
+        """
+        Loss function for discriminator.
 
-        Args:
-            `pred_label`: predicted label of generated image by discriminator.
-            `target_label`: predicted label of real target image by
-                discriminator.
+        :param pred_label: predicted label of generated image by discriminator.
+        :param target_label: predicted label of real target image by
+            discriminator.
+        :returns: Loss.
 
         """
 
@@ -193,8 +192,8 @@ class GeneratorUNet(nn.Module):
 
     def forward(self, x):
         """
-        `e`: encoder layers
-        `d`: decoder layers
+        e: encoder layers
+        d: decoder layers
         """
 
         # Encoder.

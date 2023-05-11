@@ -9,65 +9,151 @@ from torchmetrics.functional import (
     structural_similarity_index_measure as ssim,
 )
 import pytorch_lightning as pl
-from typing import TypeVar
 import math
-
-T = TypeVar('T')
 
 
 class Palette(pl.LightningModule):
-    def __init__(self, l1_lambda: float):
+    """
+    Palette image-to-image diffusion model.
+
+    :param in_channels: Input channels.
+    :param out_channels: Output channels.
+    :param inner_channels: Channel multiple, make sure it is a multiple of 2.
+    :param channel_mults: Channel multipliers for each level of the U-net.
+    :param num_res_blocks: Amount of residual blocks per layer.
+    :param attention_res: Channel multipliers at which an attention layer
+        should be added after the residual blocks.
+    :param num_heads: Number of heads used by all attention layers.
+    :param dropout: Dropout percentage.
+
+    """
+
+    def __init__(
+        self,
+        in_channels: int = 3,
+        out_channels: int = 3,
+        inner_channels: int = 64,
+        channel_mults: tuple[int] = (1, 2, 4, 8),
+        num_res_blocks: int = 3,
+        attention_res: tuple[int] = (4, 8),
+        num_heads: int = 1,
+        dropout: float = 0.,
+    ):
         super().__init__()
         self.save_hyperparameters()
-        self.example_input_array = torch.Tensor(32, 3, 256, 256)
-        self.automatic_optimization = False
 
-        self.model = UNet(
-            in_channels=6,
-            out_channels=3,
-            inner_channels=64,
-            channel_mults=(1, 2, 4, 8, 8),
-            num_res_blocks=3,
-            attention_res=(8,),
-            num_heads=1,
-            dropout=0.,
+        self.unet = UNet(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            inner_channels=inner_channels,
+            channel_mults=channel_mults,
+            num_res_blocks=num_res_blocks,
+            attention_res=attention_res,
+            num_heads=num_heads,
+            dropout=dropout,
         )
 
+        # Training scheduler
+        self.steps = 2000
+        betas = self.get_beta_schedule(self.steps, 1e-6, 1e-2, 0.1)
+        alphas = 1. - betas
+        gammas = torch.cumprod(alphas, axis=0)
+        self.register_buffer("gammas", gammas)
+
+        # Validation scheduler
+        self.steps_val = 1000
+        betas = self.get_beta_schedule(self.steps_val, 1e-4, 9e-2, 0.1)
+        alphas = 1. - betas
+        gammas = torch.cumprod(alphas, axis=0)
+        self.register_buffer("alphas_val", alphas)
+        self.register_buffer("gammas_val", gammas)
+
     def forward(self, x):
-        return self.model(x)
+        return x
 
     def loss(
         self,
         pred: torch.Tensor,
         target: torch.Tensor,
     ) -> torch.Tensor:
-        """Loss function of palette.
+        """
+        Loss function of Palette.
 
-        Args:
-            `pred`: predicted image by generator.
-            `target`: target image.
+        :param pred: Predicted noise.
+        :param target: Actual noise.
+        :returns: Loss.
 
         """
 
-        # TODO
-        pass
+        return F.mse_loss(pred, target)
+
+    def get_beta_schedule(
+        self,
+        steps: int = 2000,
+        start: float = 1e-6,
+        end: float = 1e-2,
+        warmup_frac: float = 0.1,
+    ):
+        betas = end * torch.ones(steps, dtype=torch.float)
+        warmup_steps = int(steps * warmup_frac)
+        betas[:warmup_steps] = torch.linspace(
+            start,
+            end,
+            warmup_steps,
+            dtype=torch.float,
+        )
+
+        return betas
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.generator.parameters())
+        return torch.optim.Adam(self.unet.parameters())
 
     def training_step(self, batch, batch_idx):
-        # TODO
-        pass
+        input, target = batch
+
+        # Sample gamma
+        t = torch.randint(1, self.steps, size=(input.shape[0],))
+        gamma = self.gammas[t].view(-1, 1, 1, 1)
+
+        # Create noisy image
+        noise = torch.randn_like(target)
+        y_noisy = (
+            torch.sqrt(gamma) * target +
+            torch.sqrt(1 - gamma) * noise
+        )
+
+        # Predict the added noise and compute loss
+        noise_pred = self.unet(input, y_noisy, self.gammas[t])
+        loss = self.loss(noise_pred, noise)
+
+        self.log("loss", loss, prog_bar=True)
+
+        return loss
 
     def validation_step(self, batch, batch_idx):
         input, target = batch
-        pred = self.forward(input)
 
-        g_psnr = psnr(pred, target, data_range=1.0)
-        g_ssim = ssim(pred, target, data_range=1.0)
+        yt = torch.randn_like(target)
+        for i in reversed(range(self.steps_val)):
+            t = torch.full((input.shape[0],), i, dtype=torch.int64)
 
-        self.log("val_ssim", g_ssim, prog_bar=True)
-        self.log("val_psnr", g_psnr, prog_bar=True)
+            # Predict noise in image
+            noise = self.unet(input, yt, self.gammas_val[t])
+
+            # Compute next noised image step
+            z = torch.randn_like(target) if i > 0 else torch.zeros_like(target)
+            alpha = self.alphas_val[t].view(-1, 1, 1, 1)
+            gamma = self.gammas_val[t].view(-1, 1, 1, 1)
+            yt = (
+                (1 / torch.sqrt(alpha)) *
+                (yt - ((1 - alpha) / torch.sqrt(1 - gamma)) * noise) +
+                torch.sqrt(1 - alpha) * z
+            )
+
+        pred = yt
+
+        self.log("val_ssim", ssim(pred, target, data_range=1.0), prog_bar=True)
+        self.log("val_psnr", psnr(pred, target, data_range=1.0), prog_bar=True)
 
 
 class UNet(nn.Module):
@@ -109,7 +195,7 @@ class UNet(nn.Module):
         )
 
         self.init_conv = nn.Conv2d(
-            in_channels,
+            in_channels * 2,
             inner_channels,
             kernel_size=3,
             stride=1,
@@ -183,16 +269,17 @@ class UNet(nn.Module):
             nn.Conv2d(channels, out_channels, kernel_size=3, padding=1),
         )
 
-    def forward(self, x, gamma):
+    def forward(self, x, y_noise, gamma):
         """
         :param x: [N x in_channels x H x W]
+        :param y_noise: [N x in_channels x H x W]
         :param gamma: [N]
         :returns: [N x out_channels x H x W]
 
         """
 
         t = self.cond_emb(gamma)
-        h = self.init_conv(x)
+        h = self.init_conv(torch.cat([x, y_noise], dim=1))
 
         feats = []
         for layer in self.downs:
@@ -203,7 +290,7 @@ class UNet(nn.Module):
             h = layer(h, t)
 
         for layer in self.ups:
-            h = layer(torch.cat((h, feats.pop()), dim=1), t)
+            h = layer(torch.cat([h, feats.pop()], dim=1), t)
 
         return self.out(h)
 
@@ -230,7 +317,7 @@ class PositionalEncoding(nn.Module):
         """
 
         half = self.dim // 2
-        steps = torch.arange(half, dtype=torch.float32) / half
+        steps = torch.arange(half, dtype=torch.float) / half
         freqs = torch.exp(-math.log(self.max_period) * steps).to(gammas.device)
         encoding = gammas.unsqueeze(1).float() * freqs.unsqueeze(0)
         embedding = torch.cat(

@@ -30,12 +30,27 @@ def main(hparams):
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("name")
-    parser.add_argument("-i", "--input-dir", type=pathlib.Path)
-    parser.add_argument("-t", "--target-dir", type=pathlib.Path)
+    parser.add_argument(
+        "-i",
+        "--input-dir",
+        type=pathlib.Path,
+        help="Input images directory path",
+    )
+    parser.add_argument(
+        "-t",
+        "--target-dir",
+        type=pathlib.Path,
+        help="Target images directory path",
+    )
     parser.add_argument("-l1", "--l1-lambda", default=50, type=int)
     parser.add_argument("-e", "--epochs", default=200, type=int)
     parser.add_argument("-bs", "--batch-size", default=2, type=int)
-    parser.add_argument("-p", "--precision", default="32")
+    parser.add_argument(
+        "-p",
+        "--precision",
+        default="32",
+        help="Floating-point precision"
+    )
     args = parser.parse_args()
 
     main(args)

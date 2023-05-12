@@ -138,34 +138,19 @@ class Palette(pl.LightningModule):
         for i in reversed(range(0, self.steps_val)):
             t = torch.full((x.shape[0],), i, dtype=torch.int64)
             gamma = self.gammas_val[t]
-            noise_pred = self.unet(x, y_t, gamma)
-
-            # First compute a predicton of y_0 directly from the noisy image
-            y_0_hat = (
-                (y_t - torch.sqrt(1 - gamma).view(-1, 1, 1, 1) * noise_pred) /
-                torch.sqrt(gamma).view(-1, 1, 1, 1)
-            )
-            y_0_hat = torch.clamp(y_0_hat, -1, 1)
-
-            # Compute mean and variance of posterior distribution of y_{t-1}
-            gamma_prev = self.gammas_val[t-1]
             alpha = self.alphas_val[t]
+
+            noise_pred = self.unet(x, y_t, gamma)
             mean = (
-                (
-                    (torch.sqrt(gamma_prev) * (1 - alpha)) /
-                    (1 - gamma)
-                ).view(-1, 1, 1, 1) * y_0_hat +
-                (
-                    (torch.sqrt(alpha) * (1 - gamma_prev)) /
-                    (1 - gamma)
-                ).view(-1, 1, 1, 1) * y_t
-            )
-            variance = (1 - gamma_prev) * (1 - alpha) / (1 - gamma)
+                y_t -
+                ((1-alpha) / torch.sqrt(1-gamma)).view(-1, 1, 1, 1) * noise_pred
+            ) / torch.sqrt(alpha).view(-1, 1, 1, 1)
+            variance = 1 - alpha
             variance = torch.clamp(variance, max=1e-20)
 
-            # Compute next iteration
             noise = torch.randn_like(y_t) if any(t > 0) else torch.zeros_like(y_t)
-            y_t = mean + noise * torch.sqrt(variance).view(-1, 1, 1, 1)
+            y_t = mean + torch.sqrt(1-alpha).view(-1, 1, 1, 1) * noise
+            y_t = torch.clamp(y_t, 0, 1)
 
         self.log("val_ssim", ssim(y_t, y_0, data_range=1.0), prog_bar=True)
         self.log("val_psnr", psnr(y_t, y_0, data_range=1.0), prog_bar=True)

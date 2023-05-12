@@ -4,6 +4,7 @@ import pathlib
 from models.pix2pix import Pix2Pix
 from models.palette import Palette
 from dataset import ImageDataModule
+from callbacks.ema import EMACallback
 
 
 def main(hparams):
@@ -20,8 +21,8 @@ def main(hparams):
                 out_channels=3,
                 inner_channels=64,
                 channel_mults=(1, 2, 4, 8),
-                num_res_blocks=3,
-                attention_res=(4, 8),
+                num_res_blocks=2,
+                attention_res=(8,),
                 num_heads=1,
                 dropout=0.,
             )
@@ -40,8 +41,10 @@ def main(hparams):
         deterministic=True,
         max_epochs=hparams.epochs,
         log_every_n_steps=10,
+        check_val_every_n_epoch=10,
         logger=pl.loggers.CSVLogger("logs", name=hparams.name),
         precision=hparams.precision,
+        callbacks=[EMACallback(0.9999)],
     )
     trainer.fit(model, data_module)
 

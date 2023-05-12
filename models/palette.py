@@ -18,7 +18,7 @@ class Palette(pl.LightningModule):
 
     :param in_channels: Input channels.
     :param out_channels: Output channels.
-    :param inner_channels: Channel multiple, make sure it is a multiple of 2.
+    :param inner_channels: Channel multiple, make sure it is a power of 2.
     :param channel_mults: Channel multipliers for each level of the U-net.
     :param num_res_blocks: Amount of residual blocks per layer.
     :param attention_res: Channel multipliers at which an attention layer
@@ -55,14 +55,14 @@ class Palette(pl.LightningModule):
 
         # Training scheduler
         self.steps = 2000
-        betas = self.get_beta_schedule(self.steps, 1e-6, 1e-2, 0.1)
+        betas = self.get_beta_schedule(self.steps, 1e-6, 1e-2)
         alphas = 1. - betas
         gammas = torch.cumprod(alphas, axis=0)
         self.register_buffer("gammas", gammas)
 
         # Validation scheduler
         self.steps_val = 1000
-        betas = self.get_beta_schedule(self.steps_val, 1e-4, 9e-2, 0.1)
+        betas = self.get_beta_schedule(self.steps_val, 1e-4, 9e-2)
         alphas = 1. - betas
         gammas = torch.cumprod(alphas, axis=0)
         self.register_buffer("alphas_val", alphas)
@@ -92,7 +92,7 @@ class Palette(pl.LightningModule):
         steps: int = 2000,
         start: float = 1e-6,
         end: float = 1e-2,
-        warmup_frac: float = 0.1,
+        warmup_frac: float = 0.5,
     ):
         betas = end * torch.ones(steps, dtype=torch.float)
         warmup_steps = int(steps * warmup_frac)
@@ -109,21 +109,21 @@ class Palette(pl.LightningModule):
         return torch.optim.Adam(self.unet.parameters())
 
     def training_step(self, batch, batch_idx):
-        input, target = batch
+        x, y_0 = batch
 
-        # Sample gamma
-        t = torch.randint(1, self.steps, size=(input.shape[0],))
-        gamma = self.gammas[t].view(-1, 1, 1, 1)
+        # Sample from p(gamma)
+        t = torch.randint(1, self.steps, size=(y_0.shape[0],))
+        gamma = self.gammas[t]
 
         # Create noisy image
-        noise = torch.randn_like(target)
+        noise = torch.randn_like(y_0)
         y_noisy = (
-            torch.sqrt(gamma) * target +
-            torch.sqrt(1 - gamma) * noise
+            torch.sqrt(gamma).view(-1, 1, 1, 1) * y_0 +
+            torch.sqrt(1 - gamma).view(-1, 1, 1, 1) * noise
         )
 
         # Predict the added noise and compute loss
-        noise_pred = self.unet(input, y_noisy, self.gammas[t])
+        noise_pred = self.unet(x, y_noisy, gamma)
         loss = self.loss(noise_pred, noise)
 
         self.log("loss", loss, prog_bar=True)
@@ -131,29 +131,44 @@ class Palette(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        input, target = batch
+        x, y_0 = batch
 
-        yt = torch.randn_like(target)
-        for i in reversed(range(self.steps_val)):
-            t = torch.full((input.shape[0],), i, dtype=torch.int64)
+        y_t = torch.randn_like(x)
 
-            # Predict noise in image
-            noise = self.unet(input, yt, self.gammas_val[t])
+        for i in reversed(range(0, self.steps_val)):
+            t = torch.full((x.shape[0],), i, dtype=torch.int64)
+            gamma = self.gammas_val[t]
+            noise_pred = self.unet(x, y_t, gamma)
 
-            # Compute next noised image step
-            z = torch.randn_like(target) if i > 0 else torch.zeros_like(target)
-            alpha = self.alphas_val[t].view(-1, 1, 1, 1)
-            gamma = self.gammas_val[t].view(-1, 1, 1, 1)
-            yt = (
-                (1 / torch.sqrt(alpha)) *
-                (yt - ((1 - alpha) / torch.sqrt(1 - gamma)) * noise) +
-                torch.sqrt(1 - alpha) * z
+            # First compute a predicton of y_0 directly from the noisy image
+            y_0_hat = (
+                (y_t - torch.sqrt(1 - gamma).view(-1, 1, 1, 1) * noise_pred) /
+                torch.sqrt(gamma).view(-1, 1, 1, 1)
             )
+            y_0_hat = torch.clamp(y_0_hat, -1, 1)
 
-        pred = yt
+            # Compute mean and variance of posterior distribution of y_{t-1}
+            gamma_prev = self.gammas_val[t-1]
+            alpha = self.alphas_val[t]
+            mean = (
+                (
+                    (torch.sqrt(gamma_prev) * (1 - alpha)) /
+                    (1 - gamma)
+                ).view(-1, 1, 1, 1) * y_0_hat +
+                (
+                    (torch.sqrt(alpha) * (1 - gamma_prev)) /
+                    (1 - gamma)
+                ).view(-1, 1, 1, 1) * y_t
+            )
+            variance = (1 - gamma_prev) * (1 - alpha) / (1 - gamma)
+            variance = torch.clamp(variance, max=1e-20)
 
-        self.log("val_ssim", ssim(pred, target, data_range=1.0), prog_bar=True)
-        self.log("val_psnr", psnr(pred, target, data_range=1.0), prog_bar=True)
+            # Compute next iteration
+            noise = torch.randn_like(y_t) if any(t > 0) else torch.zeros_like(y_t)
+            y_t = mean + noise * torch.sqrt(variance).view(-1, 1, 1, 1)
+
+        self.log("val_ssim", ssim(y_t, y_0, data_range=1.0), prog_bar=True)
+        self.log("val_psnr", psnr(y_t, y_0, data_range=1.0), prog_bar=True)
 
 
 class UNet(nn.Module):
@@ -278,19 +293,19 @@ class UNet(nn.Module):
 
         """
 
-        t = self.cond_emb(gamma)
+        emb = self.cond_emb(gamma)
         h = self.init_conv(torch.cat([x, y_noise], dim=1))
 
         feats = []
         for layer in self.downs:
-            h = layer(h, t)
+            h = layer(h, emb)
             feats.append(h)
 
         for layer in self.mid:
-            h = layer(h, t)
+            h = layer(h, emb)
 
         for layer in self.ups:
-            h = layer(torch.cat([h, feats.pop()], dim=1), t)
+            h = layer(torch.cat([h, feats.pop()], dim=1), emb)
 
         return self.out(h)
 

@@ -1,5 +1,6 @@
 natsort==8.3.1
 pytorch_lightning==2.0.2
 torch==2.0.0
+torch_ema==0.3
 torchmetrics==0.11.4
 torchvision==0.15.1

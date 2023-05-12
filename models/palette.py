@@ -85,7 +85,7 @@ class Palette(pl.LightningModule):
 
         """
 
-        return F.mse_loss(pred, target)
+        return F.l1_loss(pred, target)
 
     def get_beta_schedule(
         self,
@@ -132,7 +132,6 @@ class Palette(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, y_0 = batch
-
         y_t = torch.randn_like(x)
 
         for i in reversed(range(0, self.steps_val)):
@@ -140,17 +139,17 @@ class Palette(pl.LightningModule):
             gamma = self.gammas_val[t]
             alpha = self.alphas_val[t]
 
-            noise_pred = self.unet(x, y_t, gamma)
+            z_pred = self.unet(x, y_t, gamma)
             mean = (
                 y_t -
-                ((1-alpha) / torch.sqrt(1-gamma)).view(-1, 1, 1, 1) * noise_pred
+                ((1-alpha) / torch.sqrt(1-gamma)).view(-1, 1, 1, 1) * z_pred
             ) / torch.sqrt(alpha).view(-1, 1, 1, 1)
             variance = 1 - alpha
-            variance = torch.clamp(variance, max=1e-20)
+            log_variance = torch.log(torch.clamp(variance, max=1e-20))
 
-            noise = torch.randn_like(y_t) if any(t > 0) else torch.zeros_like(y_t)
-            y_t = mean + torch.sqrt(1-alpha).view(-1, 1, 1, 1) * noise
-            y_t = torch.clamp(y_t, 0, 1)
+            z = torch.randn_like(y_t) if i > 0 else torch.zeros_like(y_t)
+            y_t = mean + torch.exp(0.5 * log_variance).view(-1, 1, 1, 1) * z
+            y_t = torch.clamp(y_t, -1, 1)
 
         self.log("val_ssim", ssim(y_t, y_0, data_range=1.0), prog_bar=True)
         self.log("val_psnr", psnr(y_t, y_0, data_range=1.0), prog_bar=True)

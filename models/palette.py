@@ -4,6 +4,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torchvision.transforms as transforms
+from torchvision.io import write_video
 from torchmetrics.functional import (
     peak_signal_noise_ratio as psnr,
     structural_similarity_index_measure as ssim,
@@ -43,9 +45,12 @@ class Palette(pl.LightningModule):
         num_heads: int = 1,
         dropout: float = 0.,
         use_guided_diffusion: bool = False,
+        output_diffusion_videos: bool = False,
     ):
         super().__init__()
         self.save_hyperparameters()
+
+        self.output_video = output_diffusion_videos
 
         if use_guided_diffusion:
             self.unet = GuidedDiffusionUNet(
@@ -74,6 +79,11 @@ class Palette(pl.LightningModule):
         # Training scheduler
         self.diffusion = DiffusionModel(1e-6, 0.01, 2000, device=self.device)
         self.diffusion_val = DiffusionModel(1e-4, 0.09, 1000, device=self.device)
+
+        self.transform_back = transforms.Compose([
+            transforms.Lambda(lambda x: (x.clamp(-1, 1) + 1) / 2),
+            transforms.ConvertImageDtype(torch.uint8),
+        ])
 
     def forward(self, x):
         return x
@@ -140,11 +150,26 @@ class Palette(pl.LightningModule):
         batch_size = x.shape[0]
 
         y_t = torch.randn_like(y_0)
+        video_array = torch.unsqueeze(y_t, dim=1)
         for i in reversed(range(self.diffusion_val.timesteps)):
             t = torch.full((batch_size,), i, device=x.device)
             y_t = self.diffusion_val.backward(x, y_t, t, self.unet)
 
+            if self.output_video:
+                video_array = torch.cat(
+                    [video_array, torch.unsqueeze(y_t, dim=1)],
+                    dim=1,
+                )
+
         y_t = (torch.clamp(y_t, -1, 1) + 1) / 2
+
+        if self.output_video:
+            for ind, video in enumerate(video_array):
+                video = video.permute(0, 2, 3, 1).cpu()
+                video = self.transform_back(video)
+
+                index = batch_size * batch_idx + ind
+                write_video(f"./validation_{index}.mp4", video)
 
         self.log("val_ssim", ssim(y_t, y_0, data_range=1.0), prog_bar=True)
         self.log("val_psnr", psnr(y_t, y_0, data_range=1.0), prog_bar=True)

@@ -64,7 +64,7 @@ class Palette(pl.LightningModule):
         )
 
         # Training scheduler
-        self.diffusion = DiffusionModel(1e-6, 1e-2, 2000)
+        self.diffusion = DiffusionModel(1e-6, 1e-2, 2000, device=self.device)
 
         # Validation scheduler
         self.steps_val = 1000

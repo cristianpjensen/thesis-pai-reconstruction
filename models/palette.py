@@ -54,11 +54,7 @@ class Palette(pl.LightningModule):
         )
 
         # Training scheduler
-        self.steps = 2000
-        betas = self.get_beta_schedule(self.steps, 1e-6, 1e-2)
-        alphas = 1. - betas
-        gammas = torch.cumprod(alphas, axis=0)
-        self.register_buffer("gammas", gammas)
+        self.diffusion = DiffusionModel(1e-6, 1e-2, 2000)
 
         # Validation scheduler
         self.steps_val = 1000
@@ -85,7 +81,7 @@ class Palette(pl.LightningModule):
 
         """
 
-        return F.l1_loss(pred, target)
+        return F.mse_loss(pred, target)
 
     def get_beta_schedule(
         self,
@@ -112,18 +108,11 @@ class Palette(pl.LightningModule):
         x, y_0 = batch
 
         # Sample from p(gamma)
-        t = torch.randint(1, self.steps, size=(y_0.shape[0],))
-        gamma = self.gammas[t]
-
-        # Create noisy image
-        noise = torch.randn_like(y_0)
-        y_noisy = (
-            torch.sqrt(gamma).view(-1, 1, 1, 1) * y_0 +
-            torch.sqrt(1 - gamma).view(-1, 1, 1, 1) * noise
-        )
+        t = torch.randint(0, self.diffusion.timesteps, size=(y_0.shape[0],))
+        y_t, noise, gamma = self.diffusion.forward(y_0, t)
 
         # Predict the added noise and compute loss
-        noise_pred = self.unet(x, y_noisy, gamma)
+        noise_pred = self.unet(x, y_t, gamma)
         loss = self.loss(noise_pred, noise)
 
         self.log("loss", loss, prog_bar=True)
@@ -131,28 +120,44 @@ class Palette(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, y_0 = batch
-        y_t = torch.randn_like(x)
+        # TODO
+        pass
 
-        for i in reversed(range(0, self.steps_val)):
-            t = torch.full((x.shape[0],), i, dtype=torch.int64)
-            gamma = self.gammas_val[t]
-            alpha = self.alphas_val[t]
 
-            z_pred = self.unet(x, y_t, gamma)
-            mean = (
-                y_t -
-                ((1-alpha) / torch.sqrt(1-gamma)).view(-1, 1, 1, 1) * z_pred
-            ) / torch.sqrt(alpha).view(-1, 1, 1, 1)
-            variance = 1 - alpha
-            log_variance = torch.log(torch.clamp(variance, max=1e-20))
+class DiffusionModel():
+    def __init__(self, start, end, timesteps: int = 2000):
+        self.timesteps = timesteps
+        self.betas = torch.linspace(start, end, timesteps)
+        self.alphas = 1 - self.betas
+        self.gammas = torch.cumprod(self.alphas, axis=0)
 
-            z = torch.randn_like(y_t) if i > 0 else torch.zeros_like(y_t)
-            y_t = mean + torch.exp(0.5 * log_variance).view(-1, 1, 1, 1) * z
-            y_t = torch.clamp(y_t, -1, 1)
+    def forward(self, y_0, t):
+        """
+        :param y_0: [N x C x H x W]
+        :param y: [N]
+        :returns: [N x C x H x W], [N x C x H x W], [N,]
 
-        self.log("val_ssim", ssim(y_t, y_0, data_range=1.0), prog_bar=True)
-        self.log("val_psnr", psnr(y_t, y_0, data_range=1.0), prog_bar=True)
+        """
+
+        noise = torch.randn_like(y_0)
+        gamma = self.get_value(self.gammas, t)
+
+        mean = torch.sqrt(gamma) * y_0
+        variance = torch.sqrt(1 - gamma) * noise
+
+        return mean + variance, noise, gamma.view(-1)
+
+    def get_value(self, values, t):
+        """
+        Reshapes the value to be multiplied with a batch of images.
+
+        :param values: [N x C x H x W]
+        :param t: [N]
+        :returns: [N x 1 x 1 x 1]
+
+        """
+
+        return values[t].view(-1, 1, 1, 1)
 
 
 class UNet(nn.Module):

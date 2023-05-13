@@ -138,3 +138,5 @@ lightning_logs/
 checkpoints/
 logs/
 output/
+
+test*

@@ -47,6 +47,8 @@ class Palette(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
+        self.use_guided_diffusion = use_guided_diffusion
+
         if use_guided_diffusion:
             self.unet = GuidedDiffusionUNet(
                 in_channel=in_channels * 2,
@@ -58,7 +60,7 @@ class Palette(pl.LightningModule):
             )
         else:
             self.unet = UNet(
-                in_channels=in_channels * 2,
+                in_channels=in_channels,
                 out_channels=out_channels,
                 inner_channels=inner_channels,
                 channel_mults=channel_mults,
@@ -130,10 +132,13 @@ class Palette(pl.LightningModule):
         ).to(y_0.device)
         y_t, noise, gamma = self.diffusion.forward(y_0, t)
 
-        # Predict the added noise and compute loss
-        noise_pred = self.unet(torch.cat((x, y_t), dim=1), gamma)
-        loss = self.loss(noise_pred, noise)
+        # Predict the added noise
+        if self.use_guided_diffusion:
+            noise_pred = self.unet(torch.cat((x, y_t), dim=1), gamma)
+        else:
+            noise_pred = self.unet(x, y_t, gamma)
 
+        loss = self.loss(noise_pred, noise)
         self.log("loss", loss, prog_bar=True)
 
         return loss

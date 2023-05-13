@@ -522,10 +522,11 @@ class UNet(nn.Module):
             zero_module(nn.Conv2d(input_ch, out_channel, 3, padding=1)),
         )
 
-    def forward(self, x, gammas):
+    def forward(self, x, y, gammas):
         """
         Apply the model to an input batch.
-        :param x: an [N x 2 x ...] Tensor of inputs (B&W)
+        :param x: [N x C x ...]
+        :param y: [N x C x ...]
         :param gammas: a 1-D batch of gammas.
         :return: an [N x C x ...] Tensor of outputs.
         """
@@ -533,6 +534,7 @@ class UNet(nn.Module):
         gammas = gammas.view(-1, )
         emb = self.cond_embed(gamma_embedding(gammas, self.inner_channel))
 
+        h = torch.cat([x, y], dim=1)
         h = x.type(torch.float32)
         for module in self.input_blocks:
             h = module(h, emb)

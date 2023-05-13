@@ -47,8 +47,6 @@ class Palette(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-        self.use_guided_diffusion = use_guided_diffusion
-
         if use_guided_diffusion:
             self.unet = GuidedDiffusionUNet(
                 in_channel=in_channels * 2,
@@ -129,26 +127,27 @@ class Palette(pl.LightningModule):
         )
         y_t, noise, gamma = self.diffusion.forward(y_0, t)
 
-        # Predict the added noise
-        if self.use_guided_diffusion:
-            noise_pred = self.unet(torch.cat((x, y_t), dim=1), gamma)
-        else:
-            noise_pred = self.unet(x, y_t, gamma)
-
+        # Predict the added noise and compute loss
+        noise_pred = self.unet(x, y_t, gamma)
         loss = self.loss(noise_pred, noise)
+
         self.log("loss", loss, prog_bar=True)
 
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y_0 = batch
+        batch_size = x.shape[0]
 
         y_t = torch.randn_like(y_0)
         for i in reversed(range(self.diffusion_val.timesteps)):
-            t = torch.full((x.shape,), i, device=x.device)
+            t = torch.full((batch_size,), i, device=x.device)
             y_t = self.diffusion_val.backward(x, y_t, t, self.unet)
 
-        return y_0
+        y_t = (torch.clamp(y_t, -1, 1) + 1) / 2
+
+        self.log("val_ssim", ssim(y_t, y_0, data_range=1.0), prog_bar=True)
+        self.log("val_psnr", psnr(y_t, y_0, data_range=1.0), prog_bar=True)
 
 
 class DiffusionModel(nn.Module):
@@ -188,20 +187,30 @@ class DiffusionModel(nn.Module):
 
         """
 
-        alpha = self.get_value(self.alphas, t)
+        # TODO: REDO THIS BULLSHIT DOESNT WORK FOR SHIT
+        # USE ORIGINAL REPO'S IMPLEMENTATION
+
         gamma = self.get_value(self.gammas, t)
         noise_pred = noise_fn(x, y_t, gamma.view(-1))
-        noise_pred = torch.clamp(noise_pred, -1, 1)
-
-        mean = (1 / torch.sqrt(alpha)) * (
-            y_t -
-            ((1 - alpha) / torch.sqrt(1 - gamma)) * noise_pred
+        y_0_hat = (
+            torch.sqrt(1 / gamma) * y_t -
+            torch.sqrt(1 / gamma - 1) * noise_pred
         )
-        variance = 1 - alpha
+        y_0_hat = torch.clamp(y_0_hat, -1, 1)
 
-        noise = torch.randn_like(y_t) * (t > 0).view(-1, 1, 1, 1)
+        alpha = self.get_value(self.alphas, t)
+        gamma_prev = self.get_value(self.gammas, t - 1) if any(t > 0) else 1
+        mean = (
+            ((1 - alpha) * torch.sqrt(gamma_prev) / (1 - gamma)) * y_0_hat +
+            ((1 - gamma_prev) * torch.sqrt(alpha) / (1 - gamma)) * y_t
+        )
+        log_variance = torch.log(
+            torch.clamp((1 - alpha) * (1 - gamma_prev) / (1 - gamma), max=1e-20)
+        )
 
-        return mean + torch.sqrt(variance) * noise
+        noise = torch.randn_like(y_t) if any(t > 0) else torch.zeros_like(y_t)
+
+        return mean + noise * torch.exp(0.5 * log_variance)
 
     def get_value(self, values, t):
         """

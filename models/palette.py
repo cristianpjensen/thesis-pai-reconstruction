@@ -56,6 +56,9 @@ class Palette(pl.LightningModule):
                 inner_channel=inner_channels,
                 res_blocks=num_res_blocks,
                 attn_res=attention_res,
+                num_heads=num_heads,
+                dropout=dropout,
+                conv_resample=True,
                 image_size=256,
             )
         else:
@@ -71,15 +74,8 @@ class Palette(pl.LightningModule):
             )
 
         # Training scheduler
-        self.diffusion = DiffusionModel(1e-6, 1e-2, 2000, device=self.device)
-
-        # Validation scheduler
-        self.steps_val = 1000
-        betas = self.get_beta_schedule(self.steps_val, 1e-4, 9e-2)
-        alphas = 1. - betas
-        gammas = torch.cumprod(alphas, axis=0)
-        self.register_buffer("alphas_val", alphas)
-        self.register_buffer("gammas_val", gammas)
+        self.diffusion = DiffusionModel(1e-6, 0.01, 2000, device=self.device)
+        self.diffusion_val = DiffusionModel(1e-4, 0.09, 1000, device=self.device)
 
     def forward(self, x):
         return x
@@ -129,7 +125,8 @@ class Palette(pl.LightningModule):
             0,
             self.diffusion.timesteps,
             size=(y_0.shape[0],),
-        ).to(y_0.device)
+            device=y_0.device,
+        )
         y_t, noise, gamma = self.diffusion.forward(y_0, t)
 
         # Predict the added noise
@@ -144,8 +141,14 @@ class Palette(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        # TODO
-        pass
+        x, y_0 = batch
+
+        y_t = torch.randn_like(y_0)
+        for i in reversed(range(self.diffusion_val.timesteps)):
+            t = torch.full((x.shape,), i, device=x.device)
+            y_t = self.diffusion_val.backward(x, y_t, t, self.unet)
+
+        return y_0
 
 
 class DiffusionModel(nn.Module):
@@ -166,13 +169,39 @@ class DiffusionModel(nn.Module):
 
         """
 
-        noise = torch.randn_like(y_0)
+        noise = torch.randn_like(y_0) * (t > 0).view(-1, 1, 1, 1)
         gamma = self.get_value(self.gammas, t)
 
         mean = torch.sqrt(gamma) * y_0
         variance = torch.sqrt(1 - gamma) * noise
 
         return mean + variance, noise, gamma.view(-1)
+
+    def backward(self, x, y_t, t, noise_fn):
+        """
+        :param x: [N x C x H x W]
+        :param y_t: [N x C x H x W]
+        :param t: [N]
+        :param noise_fn: Function that predicts the noise of the current
+            timestep.
+        :returns: [N x C X H x W]
+
+        """
+
+        alpha = self.get_value(self.alphas, t)
+        gamma = self.get_value(self.gammas, t)
+        noise_pred = noise_fn(x, y_t, gamma.view(-1))
+        noise_pred = torch.clamp(noise_pred, -1, 1)
+
+        mean = (1 / torch.sqrt(alpha)) * (
+            y_t -
+            ((1 - alpha) / torch.sqrt(1 - gamma)) * noise_pred
+        )
+        variance = 1 - alpha
+
+        noise = torch.randn_like(y_t) * (t > 0).view(-1, 1, 1, 1)
+
+        return mean + torch.sqrt(variance) * noise
 
     def get_value(self, values, t):
         """

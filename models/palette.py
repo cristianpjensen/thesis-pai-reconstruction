@@ -26,6 +26,9 @@ class Palette(pl.LightningModule):
         should be added after the residual blocks.
     :param num_heads: Number of heads used by all attention layers.
     :param dropout: Dropout percentage.
+    :param use_guided_diffusion: Whether to use the U-net implementation from
+        the guided diffusion repository or to use this implementation. They
+        should be exactly the same.
 
     """
 
@@ -39,29 +42,31 @@ class Palette(pl.LightningModule):
         attention_res: tuple[int] = (4, 8),
         num_heads: int = 1,
         dropout: float = 0.,
+        use_guided_diffusion: bool = False,
     ):
         super().__init__()
         self.save_hyperparameters()
 
-        # self.unet = UNet(
-            # in_channels=in_channels,
-            # out_channels=out_channels,
-            # inner_channels=inner_channels,
-            # channel_mults=channel_mults,
-            # num_res_blocks=num_res_blocks,
-            # attention_res=attention_res,
-            # num_heads=num_heads,
-            # dropout=dropout,
-        # )
-
-        self.unet = GuidedDiffusionUNet(
-            in_channel=6,
-            out_channel=3,
-            inner_channel=64,
-            res_blocks=3,
-            attn_res=[8],
-            image_size=256,
-        )
+        if use_guided_diffusion:
+            self.unet = GuidedDiffusionUNet(
+                in_channel=in_channels * 2,
+                out_channel=out_channels,
+                inner_channel=inner_channels,
+                res_blocks=num_res_blocks,
+                attn_res=attention_res,
+                image_size=256,
+            )
+        else:
+            self.unet = UNet(
+                in_channels=in_channels * 2,
+                out_channels=out_channels,
+                inner_channels=inner_channels,
+                channel_mults=channel_mults,
+                num_res_blocks=num_res_blocks,
+                attention_res=attention_res,
+                num_heads=num_heads,
+                dropout=dropout,
+            )
 
         # Training scheduler
         self.diffusion = DiffusionModel(1e-6, 1e-2, 2000, device=self.device)
@@ -112,7 +117,7 @@ class Palette(pl.LightningModule):
         return betas
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.unet.parameters())
+        return torch.optim.Adam(self.unet.parameters(), lr=1e-4)
 
     def training_step(self, batch, batch_idx):
         x, y_0 = batch
@@ -138,14 +143,15 @@ class Palette(pl.LightningModule):
         pass
 
 
-class DiffusionModel():
+class DiffusionModel(nn.Module):
     def __init__(self, start, end, timesteps: int = 2000, device="cpu"):
         super().__init__()
 
         self.timesteps = timesteps
-        self.betas = torch.linspace(start, end, timesteps).to(device)
-        self.alphas = 1 - self.betas
-        self.gammas = torch.cumprod(self.alphas, axis=0)
+        betas = torch.linspace(start, end, timesteps).to(device)
+
+        self.register_buffer("alphas", 1 - betas)
+        self.register_buffer("gammas", torch.cumprod(self.alphas, axis=0))
 
     def forward(self, y_0, t):
         """

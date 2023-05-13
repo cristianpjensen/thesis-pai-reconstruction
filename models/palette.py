@@ -9,6 +9,7 @@ from torchmetrics.functional import (
     structural_similarity_index_measure as ssim,
 )
 import pytorch_lightning as pl
+from .guided_diffusion.unet import UNet as GuidedDiffusionUNet
 import math
 
 
@@ -42,15 +43,24 @@ class Palette(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-        self.unet = UNet(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            inner_channels=inner_channels,
-            channel_mults=channel_mults,
-            num_res_blocks=num_res_blocks,
-            attention_res=attention_res,
-            num_heads=num_heads,
-            dropout=dropout,
+        # self.unet = UNet(
+            # in_channels=in_channels,
+            # out_channels=out_channels,
+            # inner_channels=inner_channels,
+            # channel_mults=channel_mults,
+            # num_res_blocks=num_res_blocks,
+            # attention_res=attention_res,
+            # num_heads=num_heads,
+            # dropout=dropout,
+        # )
+
+        self.unet = GuidedDiffusionUNet(
+            in_channel=6,
+            out_channel=3,
+            inner_channel=64,
+            res_blocks=3,
+            attn_res=[8],
+            image_size=256,
         )
 
         # Training scheduler
@@ -108,11 +118,15 @@ class Palette(pl.LightningModule):
         x, y_0 = batch
 
         # Sample from p(gamma)
-        t = torch.randint(0, self.diffusion.timesteps, size=(y_0.shape[0],))
+        t = torch.randint(
+            0,
+            self.diffusion.timesteps,
+            size=(y_0.shape[0],),
+        ).to(y_0.device)
         y_t, noise, gamma = self.diffusion.forward(y_0, t)
 
         # Predict the added noise and compute loss
-        noise_pred = self.unet(x, y_t, gamma)
+        noise_pred = self.unet(torch.cat((x, y_t), dim=1), gamma)
         loss = self.loss(noise_pred, noise)
 
         self.log("loss", loss, prog_bar=True)
@@ -125,9 +139,11 @@ class Palette(pl.LightningModule):
 
 
 class DiffusionModel():
-    def __init__(self, start, end, timesteps: int = 2000):
+    def __init__(self, start, end, timesteps: int = 2000, device="cpu"):
+        super().__init__()
+
         self.timesteps = timesteps
-        self.betas = torch.linspace(start, end, timesteps)
+        self.betas = torch.linspace(start, end, timesteps).to(device)
         self.alphas = 1 - self.betas
         self.gammas = torch.cumprod(self.alphas, axis=0)
 
@@ -135,7 +151,7 @@ class DiffusionModel():
         """
         :param y_0: [N x C x H x W]
         :param y: [N]
-        :returns: [N x C x H x W], [N x C x H x W], [N,]
+        :returns: [N x C x H x W], [N x C x H x W], [N]
 
         """
 
@@ -313,17 +329,17 @@ class PositionalEncoding(nn.Module):
         self.dim = dim
         self.max_period = max_period
 
-    def forward(self, gammas):
+    def forward(self, gamma):
         """
-        :param gammas: [N]
+        :param gamma: [N]
         :returns: [N x dim]
 
         """
 
         half = self.dim // 2
         steps = torch.arange(half, dtype=torch.float) / half
-        freqs = torch.exp(-math.log(self.max_period) * steps).to(gammas.device)
-        encoding = gammas.unsqueeze(1).float() * freqs.unsqueeze(0)
+        freqs = torch.exp(-math.log(self.max_period) * steps).to(gamma.device)
+        encoding = gamma.unsqueeze(1).float() * freqs.unsqueeze(0)
         embedding = torch.cat(
             [torch.cos(encoding), torch.sin(encoding)],
             dim=-1,

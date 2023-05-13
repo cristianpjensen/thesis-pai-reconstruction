@@ -81,7 +81,6 @@ class Palette(pl.LightningModule):
         self.diffusion_val = DiffusionModel(1e-4, 0.09, 1000, device=self.device)
 
         self.transform_back = transforms.Compose([
-            transforms.Lambda(lambda x: (x.clamp(-1, 1) + 1) / 2),
             transforms.ConvertImageDtype(torch.uint8),
         ])
 
@@ -150,18 +149,18 @@ class Palette(pl.LightningModule):
         batch_size = x.shape[0]
 
         y_t = torch.randn_like(y_0)
-        video_array = torch.unsqueeze(y_t, dim=1)
+        y_t_noise = torch.cat([y_t, torch.zeros_like(y_t)], dim=3)
+        video_array = torch.unsqueeze(y_t_noise, dim=1)
         for i in reversed(range(self.diffusion_val.timesteps)):
             t = torch.full((batch_size,), i, device=x.device)
-            y_t = self.diffusion_val.backward(x, y_t, t, self.unet)
+            y_t, noise_pred = self.diffusion_val.backward(x, y_t, t, self.unet)
 
             if self.output_video:
+                y_t_noise = torch.cat([y_t, noise_pred], dim=3)
                 video_array = torch.cat(
-                    [video_array, torch.unsqueeze(y_t, dim=1)],
+                    [video_array, torch.unsqueeze(y_t_noise, dim=1)],
                     dim=1,
                 )
-
-        y_t = (torch.clamp(y_t, -1, 1) + 1) / 2
 
         if self.output_video:
             for ind, video in enumerate(video_array):
@@ -169,7 +168,7 @@ class Palette(pl.LightningModule):
                 video = self.transform_back(video)
 
                 index = batch_size * batch_idx + ind
-                write_video(f"./validation_{index}.mp4", video)
+                write_video(f"./validation_{index}.mp4", video, fps=50)
 
         self.log("val_ssim", ssim(y_t, y_0, data_range=1.0), prog_bar=True)
         self.log("val_psnr", psnr(y_t, y_0, data_range=1.0), prog_bar=True)
@@ -216,29 +215,31 @@ class DiffusionModel(nn.Module):
 
         """
 
-        mean, variance = self._p_mean_variance(x, y_t, t, noise_fn)
+        mean, variance, noise_pred = self._p_mean_variance(x, y_t, t, noise_fn)
         noise = torch.randn_like(y_t) if any(t > 0) else torch.zeros_like(y_t)
 
-        return mean + torch.log(variance) * noise
+        return mean + torch.sqrt(variance) * noise, noise_pred
 
     def _p_mean_variance(self, x, y_t, t, noise_fn):
         gamma = self.get_value(self.gammas, t)
         alpha = self.get_value(self.alphas, t)
         gamma_prev = self.get_value(self.gammas_prev, t)
 
-        y0_hat = self._predict_y0(x, y_t, gamma, noise_fn)
+        noise_pred = noise_fn(x, y_t, gamma.view(-1))
+        y0_hat = self._predict_y0(x, y_t, gamma, noise_pred)
+        y0_hat = torch.clamp(y0_hat, -1, 1)
         mean = (
             (torch.sqrt(gamma_prev) * (1 - alpha) / (1 - gamma)) * y0_hat +
             (torch.sqrt(alpha) * (1 - gamma_prev) / (1 - gamma)) * y_t
         )
         variance = (1 - gamma_prev) * (1 - alpha) / (1 - gamma)
 
-        return mean, variance
+        return mean, variance, noise_pred
 
-    def _predict_y0(self, x, y_t, gamma, noise_fn):
-        return (1 / torch.sqrt(gamma)) * (
-            y_t -
-            torch.sqrt(1 - gamma) * noise_fn(x, y_t, gamma.view(-1))
+    def _predict_y0(self, x, y_t, gamma, noise_pred):
+        return (
+            torch.sqrt(1 / gamma) * y_t -
+            torch.sqrt(1 / gamma - 1) * noise_pred
         )
 
     def get_value(self, values, t):

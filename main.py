@@ -41,7 +41,7 @@ def main(hparams):
         deterministic=True,
         max_epochs=hparams.epochs,
         log_every_n_steps=10,
-        check_val_every_n_epoch=10,
+        check_val_every_n_epoch=25,
         logger=pl.loggers.CSVLogger("logs", name=hparams.name),
         precision=hparams.precision,
         callbacks=[EMACallback(0.9999)],

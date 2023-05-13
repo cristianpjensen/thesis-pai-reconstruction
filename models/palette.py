@@ -159,6 +159,10 @@ class DiffusionModel(nn.Module):
 
         self.register_buffer("alphas", 1 - betas)
         self.register_buffer("gammas", torch.cumprod(self.alphas, axis=0))
+        self.register_buffer(
+            "gammas_prev",
+            torch.cat([torch.ones(1), self.gammas[:-1]], axis=0),
+        )
 
     def forward(self, y_0, t):
         """
@@ -187,30 +191,30 @@ class DiffusionModel(nn.Module):
 
         """
 
-        # TODO: REDO THIS BULLSHIT DOESNT WORK FOR SHIT
-        # USE ORIGINAL REPO'S IMPLEMENTATION
-
-        gamma = self.get_value(self.gammas, t)
-        noise_pred = noise_fn(x, y_t, gamma.view(-1))
-        y_0_hat = (
-            torch.sqrt(1 / gamma) * y_t -
-            torch.sqrt(1 / gamma - 1) * noise_pred
-        )
-        y_0_hat = torch.clamp(y_0_hat, -1, 1)
-
-        alpha = self.get_value(self.alphas, t)
-        gamma_prev = self.get_value(self.gammas, t - 1) if any(t > 0) else 1
-        mean = (
-            ((1 - alpha) * torch.sqrt(gamma_prev) / (1 - gamma)) * y_0_hat +
-            ((1 - gamma_prev) * torch.sqrt(alpha) / (1 - gamma)) * y_t
-        )
-        log_variance = torch.log(
-            torch.clamp((1 - alpha) * (1 - gamma_prev) / (1 - gamma), max=1e-20)
-        )
-
+        mean, variance = self._p_mean_variance(x, y_t, t, noise_fn)
         noise = torch.randn_like(y_t) if any(t > 0) else torch.zeros_like(y_t)
 
-        return mean + noise * torch.exp(0.5 * log_variance)
+        return mean + torch.log(variance) * noise
+
+    def _p_mean_variance(self, x, y_t, t, noise_fn):
+        gamma = self.get_value(self.gammas, t)
+        alpha = self.get_value(self.alphas, t)
+        gamma_prev = self.get_value(self.gammas_prev, t)
+
+        y0_hat = self._predict_y0(x, y_t, gamma, noise_fn)
+        mean = (
+            (torch.sqrt(gamma_prev) * (1 - alpha) / (1 - gamma)) * y0_hat +
+            (torch.sqrt(alpha) * (1 - gamma_prev) / (1 - gamma)) * y_t
+        )
+        variance = (1 - gamma_prev) * (1 - alpha) / (1 - gamma)
+
+        return mean, variance
+
+    def _predict_y0(self, x, y_t, gamma, noise_fn):
+        return (1 / torch.sqrt(gamma)) * (
+            y_t -
+            torch.sqrt(1 - gamma) * noise_fn(x, y_t, gamma.view(-1))
+        )
 
     def get_value(self, values, t):
         """

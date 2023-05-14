@@ -148,25 +148,25 @@ class TransformerUNet(nn.Module):
     def __init__(self, in_channels: int = 3, out_channels: int = 3):
         super().__init__()
 
-        self.down1 = Downsample(in_channels, 64, 256, 8)
-        self.down2 = Downsample(64, 128, 128, 8)
-        self.down3 = Downsample(128, 256, 64, 8)
-        self.down4 = Downsample(256, 512, 32, 8)
-        self.down5 = Downsample(512, 512, 16, 8)
-        self.down6 = Downsample(512, 512, 8, 8)
-        self.down7 = Downsample(512, 512, 4, 4)
-        self.down8 = Downsample(512, 512, 2, 2)
+        self.down1 = Downsample(in_channels, 64, 8)
+        self.down2 = Downsample(64, 128, 8)
+        self.down3 = Downsample(128, 256, 8)
+        self.down4 = Downsample(256, 512, 8)
+        self.down5 = Downsample(512, 512, 8)
+        self.down6 = Downsample(512, 512, 8)
+        self.down7 = Downsample(512, 512, 4)
+        self.down8 = Downsample(512, 512, 2)
 
         # Skip-connections are added here, so the amount of channels of the
         # output is doubled.
-        self.up8 = Upsample(512, 512, 1, 1)
-        self.up7 = Upsample(1024, 512, 2, 2)
-        self.up6 = Upsample(1024, 512, 4, 4)
-        self.up5 = Upsample(1024, 512, 8, 8)
-        self.up4 = Upsample(1024, 256, 16, 8)
-        self.up3 = Upsample(512, 128, 32, 8)
-        self.up2 = Upsample(256, 64, 64, 8)
-        self.up1 = Upsample(128, 64, 128, 8)
+        self.up8 = Upsample(512, 512, 1)
+        self.up7 = Upsample(1024, 512, 2)
+        self.up6 = Upsample(1024, 512, 4)
+        self.up5 = Upsample(1024, 512, 8)
+        self.up4 = Upsample(1024, 256, 8)
+        self.up3 = Upsample(512, 128, 8)
+        self.up2 = Upsample(256, 64, 8)
+        self.up1 = Upsample(128, 64, 8)
 
         self.out = nn.Conv2d(64, 3, kernel_size=1, stride=1, padding=0)
 
@@ -216,11 +216,11 @@ class TransformerDiscriminator(nn.Module):
         )
 
         self.net = nn.Sequential(
-            Downsample(in_channels * 2, 64, 256, 8),
-            Downsample(64, 128, 128, 8),
-            Downsample(128, 256, 64, 8),
-            Downsample(256, 512, 32, 8),
-            TransformerBlocks(512, 1, 16, 16),
+            Downsample(in_channels * 2, 64, 8),
+            Downsample(64, 128, 8),
+            Downsample(128, 256, 8),
+            Downsample(256, 512, 8),
+            TransformerBlocks(512, 1, 16),
         )
 
     def forward(self, x, y):
@@ -233,7 +233,6 @@ class Upsample(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        image_size: int,
         window_size: int,
         block_depth: int = 2,
     ):
@@ -243,7 +242,6 @@ class Upsample(nn.Module):
             TransformerBlocks(
                 in_channels,
                 out_channels,
-                image_size,
                 window_size,
                 depth=block_depth,
             ),
@@ -265,7 +263,6 @@ class Downsample(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        image_size: int,
         window_size: int,
         block_depth: int = 3,
     ):
@@ -275,7 +272,6 @@ class Downsample(nn.Module):
             TransformerBlocks(
                 in_channels,
                 out_channels,
-                image_size,
                 window_size,
                 depth=block_depth,
             ),
@@ -297,7 +293,6 @@ class TransformerBlocks(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        image_size: int,
         window_size: int,
         depth: int = 2,
     ):
@@ -307,7 +302,6 @@ class TransformerBlocks(nn.Module):
             TransformerBlock(
                 in_channels,
                 out_channels,
-                image_size,
                 window_size,
             ),
         ]
@@ -317,7 +311,6 @@ class TransformerBlocks(nn.Module):
                 out_channels,
                 out_channels,
                 window_size,
-                image_size,
             ) for _ in range(depth)
         ])
 
@@ -339,7 +332,6 @@ class TransformerBlock(nn.Module):
         in_channels: int,
         out_channels: int,
         window_size: int,
-        image_size: int,
     ):
         super().__init__()
 
@@ -348,11 +340,10 @@ class TransformerBlock(nn.Module):
             GridSelfAttention(in_channels, window_size),
         )
 
-        dim = image_size * image_size
         self.block2 = nn.Sequential(
-            nn.Linear(dim, 4 * dim),
+            nn.Linear(in_channels, 4 * in_channels),
             nn.GELU(),
-            nn.Linear(4 * dim, dim),
+            nn.Linear(4 * in_channels, in_channels),
             nn.GELU(),
         )
 
@@ -372,11 +363,12 @@ class TransformerBlock(nn.Module):
         b, c, h, w = x.shape
 
         out = self.block1(x)
+
         out = out.reshape(b, c, -1)
-
+        out = out.permute(0, 2, 1)
         out = self.block2(out)
-        out = out.reshape(b, c, h, w)
 
+        out = out.reshape(b, c, h, w)
         return self.out(out)
 
 

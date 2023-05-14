@@ -149,14 +149,11 @@ class Palette(pl.LightningModule):
         batch_size = x.shape[0]
 
         y_t = torch.randn_like(y_0)
-        y_t_noise = torch.cat(
-            [y_t, torch.zeros_like(y_t), torch.zeros_like(y_t)],
-            dim=3,
-        )
+        y_t_noise = torch.cat([y_t, torch.zeros_like(y_t)], dim=3)
         video_array = torch.unsqueeze(y_t_noise, dim=1)
         for i in reversed(range(self.diffusion_val.timesteps)):
             t = torch.full((batch_size,), i, device=x.device)
-            y_t, y0_hat, noise_pred = self.diffusion_val.backward(
+            y_t, noise_pred = self.diffusion_val.backward(
                 x,
                 y_t,
                 t,
@@ -164,10 +161,7 @@ class Palette(pl.LightningModule):
             )
 
             if self.output_video:
-                y_t_noise = torch.cat(
-                    [y_t, noise_pred, y0_hat],
-                    dim=3,
-                )
+                y_t_noise = torch.cat([y_t, noise_pred], dim=3)
                 video_array = torch.cat(
                     [video_array, torch.unsqueeze(y_t_noise, dim=1)],
                     dim=1,
@@ -196,7 +190,7 @@ class DiffusionModel(nn.Module):
         self.register_buffer("gammas", torch.cumprod(self.alphas, axis=0))
         self.register_buffer(
             "gammas_prev",
-            torch.cat([torch.ones(1), self.gammas[:-1]], axis=0),
+            F.pad(self.gammas[:-1], (1, 0), value=1),
         )
 
     def forward(self, y_0, t):
@@ -226,33 +220,29 @@ class DiffusionModel(nn.Module):
 
         """
 
-        mean, log_variance, y0_hat, noise_pred = self._p_mean_variance(
-            x,
-            y_t,
-            t,
-            noise_fn,
-        )
-        noise = torch.randn_like(y_t) if any(t > 0) else torch.zeros_like(y_t)
-
-        return mean + torch.exp(0.5 * log_variance) * noise, y0_hat, noise_pred
-
-    def _p_mean_variance(self, x, y_t, t, noise_fn):
         gamma = self.get_value(self.gammas, t)
+        noise_pred = noise_fn(x, y_t, gamma.view(-1))
+        y0_pred = self._predict_y0(y_t, gamma, noise_pred)
+        y0_pred = y0_pred.clamp(-1, 1)
+        mean, log_variance = self._q_posterior(y0_pred, y_t, t)
+
+        noise = torch.randn_like(y_t) * (t > 0).view(-1, 1, 1, 1)
+
+        return mean + torch.exp(0.5 * log_variance) * noise, noise_pred
+
+    def _q_posterior(self, y_0, y_t, t):
         alpha = self.get_value(self.alphas, t)
+        gamma = self.get_value(self.gammas, t)
         gamma_prev = self.get_value(self.gammas_prev, t)
 
-        noise_pred = noise_fn(x, y_t, gamma.view(-1))
-        y0_hat = self._predict_y0(y_t, gamma, noise_pred)
-        y0_hat = torch.clamp(y0_hat, -1, 1)
-        mean = (
-            (torch.sqrt(gamma_prev) * (1 - alpha) / (1 - gamma)) * y0_hat +
-            (torch.sqrt(alpha) * (1 - gamma_prev) / (1 - gamma)) * y_t
-        )
-        variance = (1 - gamma_prev) * (1 - alpha) / (1 - gamma)
-        variance_clipped = torch.cat([variance[[1]], variance[1:]])
-        log_variance = torch.log(variance_clipped)
+        c1 = torch.sqrt(gamma_prev) * (1 - alpha) / (1 - gamma)
+        c2 = torch.sqrt(alpha) * (1 - gamma_prev) / (1 - gamma)
 
-        return mean, log_variance, y0_hat, noise_pred
+        mean = c1 * y_0 + c2 * y_t
+        variance = (1 - gamma_prev) * (1 - alpha) / (1 - gamma)
+        variance = variance.clip(1e-20)
+
+        return mean, variance
 
     def _predict_y0(self, y_t, gamma, noise_pred):
         return (

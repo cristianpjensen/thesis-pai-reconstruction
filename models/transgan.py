@@ -211,10 +211,6 @@ class TransformerDiscriminator(nn.Module):
     def __init__(self, in_channels: int = 3):
         super().__init__()
 
-        self.stage1 = nn.Sequential(
-            Downsample()
-        )
-
         self.net = nn.Sequential(
             Downsample(in_channels * 2, 64, 8),
             Downsample(64, 128, 8),

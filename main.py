@@ -3,6 +3,7 @@ from argparse import ArgumentParser
 import pathlib
 from models.pix2pix import Pix2Pix
 from models.palette import Palette
+from models.transgan import TransGAN
 from dataset import ImageDataModule
 from callbacks.ema import EMACallback
 
@@ -27,6 +28,9 @@ def main(hparams):
                 dropout=0.,
             )
 
+        case "transgan":
+            model = TransGAN(l1_lambda=hparams.l1_lambda)
+
     if model is None:
         raise ValueError(f"Incorrect model name ({hparams.model})")
 
@@ -41,7 +45,7 @@ def main(hparams):
         deterministic=True,
         max_epochs=hparams.epochs,
         log_every_n_steps=10,
-        check_val_every_n_epoch=25,
+        check_val_every_n_epoch=10,
         logger=pl.loggers.CSVLogger("logs", name=hparams.name),
         precision=hparams.precision,
         callbacks=[EMACallback(0.9999)],
@@ -77,7 +81,7 @@ if __name__ == "__main__":
         "-m",
         "--model",
         default="pix2pix",
-        choices=["pix2pix", "palette"],
+        choices=["pix2pix", "palette", "transgan"],
     )
     args = parser.parse_args()
 

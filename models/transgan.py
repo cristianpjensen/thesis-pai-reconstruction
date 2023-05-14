@@ -145,11 +145,7 @@ class TransGAN(pl.LightningModule):
 
 
 class TransformerUNet(nn.Module):
-    def __init__(
-        self,
-        in_channels: int = 3,
-        out_channels: int = 3,
-    ):
+    def __init__(self, in_channels: int = 3, out_channels: int = 3):
         super().__init__()
 
         self.down1 = Downsample(in_channels, 64, 256, 8)
@@ -172,10 +168,7 @@ class TransformerUNet(nn.Module):
         self.up2 = Upsample(256, 64, 64, 8)
         self.up1 = Upsample(128, 64, 128, 8)
 
-        self.out = nn.Sequential(
-            TransformerBlocks(64, 3, 256, 8),
-            nn.Tanh(),
-        )
+        self.out = nn.Conv2d(64, 3, kernel_size=1, stride=1, padding=0)
 
     def forward(self, x):
         """
@@ -243,7 +236,6 @@ class Upsample(nn.Module):
         image_size: int,
         window_size: int,
         block_depth: int = 2,
-        num_heads: int = 1,
     ):
         super().__init__()
 
@@ -254,9 +246,8 @@ class Upsample(nn.Module):
                 image_size,
                 window_size,
                 depth=block_depth,
-                num_heads=num_heads,
             ),
-            nn.Upsample(scale_factor=2, mode="bicubic"),
+            nn.Upsample(scale_factor=2),
         )
 
     def forward(self, x):
@@ -277,7 +268,6 @@ class Downsample(nn.Module):
         image_size: int,
         window_size: int,
         block_depth: int = 3,
-        num_heads: int = 1,
     ):
         super().__init__()
 
@@ -288,7 +278,6 @@ class Downsample(nn.Module):
                 image_size,
                 window_size,
                 depth=block_depth,
-                num_heads=num_heads,
             ),
             nn.MaxPool2d(2),
         )
@@ -311,7 +300,6 @@ class TransformerBlocks(nn.Module):
         image_size: int,
         window_size: int,
         depth: int = 2,
-        num_heads: int = 1,
     ):
         super().__init__()
 
@@ -321,7 +309,6 @@ class TransformerBlocks(nn.Module):
                 out_channels,
                 image_size,
                 window_size,
-                num_heads=num_heads,
             ),
         ]
 
@@ -331,7 +318,6 @@ class TransformerBlocks(nn.Module):
                 out_channels,
                 window_size,
                 image_size,
-                num_heads=num_heads,
             ) for _ in range(depth)
         ])
 
@@ -354,13 +340,12 @@ class TransformerBlock(nn.Module):
         out_channels: int,
         window_size: int,
         image_size: int,
-        num_heads: int = 1,
     ):
         super().__init__()
 
         self.block1 = nn.Sequential(
             nn.GroupNorm(32, in_channels) if in_channels > 32 else nn.Identity(),
-            GridSelfAttention(in_channels, window_size, num_heads=num_heads),
+            GridSelfAttention(in_channels, window_size),
         )
 
         dim = image_size * image_size
@@ -399,15 +384,18 @@ class GridSelfAttention(nn.Module):
         self,
         channels: int,
         window_size: int,
-        num_heads: int = 1,
+        dropout: float = 0,
     ):
         super().__init__()
 
         self.window_size = window_size
-        self.attention = nn.MultiheadAttention(
-            channels,
-            num_heads,
-            batch_first=True,
+
+        self.scale = channels ** -0.5
+        self.qkv = nn.Linear(channels, channels * 3)
+        self.attn_drop = nn.Dropout(dropout)
+        self.out = nn.Sequential(
+            nn.Linear(channels, channels),
+            nn.Dropout(dropout),
         )
 
     def forward(self, x):
@@ -427,7 +415,15 @@ class GridSelfAttention(nn.Module):
         windows = windows.reshape(-1, w_size * w_size, c)
 
         # Do self-attention per window
-        out, _ = self.attention(windows, windows, windows, need_weights=False)
+        qkv = self.qkv(windows)
+        query, key, value = qkv.chunk(3, dim=-1)
+
+        scores = torch.bmm(query.transpose(1, 2), key) * self.scale
+        attention = F.softmax(scores, dim=-1)
+        attention = self.attn_drop(attention)
+
+        weighted = torch.bmm(attention, value.transpose(1, 2)).transpose(1, 2)
+        out = self.out(weighted)
 
         # Reconstruct image from windows: [N x C x H x W]
         out = out.view(n, h // w_size, w // w_size, w_size, w_size, c)
@@ -437,7 +433,7 @@ class GridSelfAttention(nn.Module):
         return out
 
 
-class MLP(nn.Module):
+class Mlp(nn.Module):
     def __init__(
         self,
         in_dim: int,
@@ -447,13 +443,10 @@ class MLP(nn.Module):
     ):
         super().__init__()
 
-        self.mlp = nn.Sequential(
-            nn.Linear(in_dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, out_dim),
-            nn.Dropout(dropout),
-        )
+        self.fc1 = nn.Linear(in_dim, hidden_dim)
+        self.act = nn.GELU()
+        self.fc2 = nn.Linear(hidden_dim, out_dim)
+        self.drop = nn.Dropout(dropout)
 
     def forward(self, x):
         """
@@ -462,11 +455,17 @@ class MLP(nn.Module):
 
         """
 
-        return self.mlp(x)
+        x = self.fc1(x)
+        x = self.act(x)
+        x = self.drop(x)
+        x = self.fc2(x)
+        x = self.drop(x)
+
+        return x
 
 
 if __name__ == "__main__":
-    gen = Generator(3, 3)
+    gen = TransformerUNet(3, 3)
 
     x = torch.randn((2, 3, 256, 256))
     y = gen(x)

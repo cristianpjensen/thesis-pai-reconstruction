@@ -350,8 +350,9 @@ class TransformerBlock(nn.Module):
 
         dim = image_size * image_size
         self.block2 = nn.Sequential(
-            nn.GroupNorm(32, in_channels) if in_channels > 32 else nn.Identity(),
-            MLP(dim, 4 * dim, dim),
+            nn.Linear(dim, 4 * dim),
+            nn.GELU(),
+            nn.Linear(4 * dim, dim),
             nn.GELU(),
         )
 
@@ -431,37 +432,6 @@ class GridSelfAttention(nn.Module):
         out = out.reshape(n, c, h, w)
 
         return out
-
-
-class Mlp(nn.Module):
-    def __init__(
-        self,
-        in_dim: int,
-        hidden_dim: int,
-        out_dim: int,
-        dropout: float = 0,
-    ):
-        super().__init__()
-
-        self.fc1 = nn.Linear(in_dim, hidden_dim)
-        self.act = nn.GELU()
-        self.fc2 = nn.Linear(hidden_dim, out_dim)
-        self.drop = nn.Dropout(dropout)
-
-    def forward(self, x):
-        """
-        :param x: [N x C x in_dim]
-        :returns: [N x C x out_dim]
-
-        """
-
-        x = self.fc1(x)
-        x = self.act(x)
-        x = self.drop(x)
-        x = self.fc2(x)
-        x = self.drop(x)
-
-        return x
 
 
 if __name__ == "__main__":

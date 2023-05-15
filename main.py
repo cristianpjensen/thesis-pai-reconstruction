@@ -85,7 +85,7 @@ if __name__ == "__main__":
         "-m",
         "--model",
         default="pix2pix",
-        choices=["pix2pix", "palette", "transgan"],
+        choices=["pix2pix", "palette", "transgan", "resnet"],
     )
     args = parser.parse_args()
 

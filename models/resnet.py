@@ -6,7 +6,7 @@ from torchmetrics.functional import (
     peak_signal_noise_ratio as psnr,
     structural_similarity_index_measure as ssim,
 )
-import pytorch_lighting as pl
+import pytorch_lightning as pl
 
 
 class ResNetGAN(pl.LightningModule):

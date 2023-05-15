@@ -53,19 +53,6 @@ class Palette(pl.LightningModule):
 
         self.output_video = output_diffusion_videos
 
-        if self.output_video:
-            val_diffusion_dir = os.path.join(
-                self.logger.log_dir,
-                "val_diffusion",
-            )
-            val_output_dir = os.path.join(self.logger.log_dir, "val_output")
-
-            if not os.path.exists(val_diffusion_dir):
-                os.mkdir(val_diffusion_dir)
-
-            if not os.path.exists(val_output_dir):
-                os.mkdir(val_output_dir)
-
         if use_guided_diffusion:
             self.unet = GuidedDiffusionUNet(
                 in_channel=in_channels * 2,
@@ -158,13 +145,27 @@ class Palette(pl.LightningModule):
 
         return loss
 
+    def on_validation_start(self):
+        # Make dirs to save log video to
+        if self.output_video:
+            val_diffusion_dir = os.path.join(
+                self.logger.log_dir,
+                "val_diffusion",
+            )
+            val_output_dir = os.path.join(self.logger.log_dir, "val_output")
+
+            if not os.path.exists(val_diffusion_dir):
+                os.mkdir(val_diffusion_dir)
+
+            if not os.path.exists(val_output_dir):
+                os.mkdir(val_output_dir)
+
     def validation_step(self, batch, batch_idx):
         x, y_0 = batch
         batch_size = x.shape[0]
 
         y_t = torch.randn_like(y_0)
-        y_t_noise = torch.cat([y_t, torch.zeros_like(y_t)], dim=3)
-        video_array = torch.unsqueeze(y_t_noise, dim=1)
+        video_array = torch.unsqueeze(y_t, dim=1)
         for i in reversed(range(self.diffusion_val.timesteps)):
             t = torch.full((batch_size,), i, device=x.device)
             y_t = self.diffusion_val.backward(x, y_t, t, self.unet)

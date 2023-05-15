@@ -27,6 +27,7 @@ def main(hparams):
                 attention_res=(4, 8),
                 num_heads=1,
                 dropout=0.,
+                output_diffusion_videos=True,
             )
 
         case "transgan":

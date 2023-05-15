@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
-from torchvision.io import write_video
+from torchvision.io import write_video, write_png
 from torchmetrics.functional import (
     peak_signal_noise_ratio as psnr,
     structural_similarity_index_measure as ssim,
@@ -13,6 +13,7 @@ from torchmetrics.functional import (
 import pytorch_lightning as pl
 from .guided_diffusion.unet import UNet as GuidedDiffusionUNet
 import math
+import os
 
 
 class Palette(pl.LightningModule):
@@ -51,6 +52,19 @@ class Palette(pl.LightningModule):
         self.save_hyperparameters()
 
         self.output_video = output_diffusion_videos
+
+        if self.output_video:
+            val_diffusion_dir = os.path.join(
+                self.logger.log_dir,
+                "val_diffusion",
+            )
+            val_output_dir = os.path.join(self.logger.log_dir, "val_output")
+
+            if not os.path.exists(val_diffusion_dir):
+                os.mkdir(val_diffusion_dir)
+
+            if not os.path.exists(val_output_dir):
+                os.mkdir(val_output_dir)
 
         if use_guided_diffusion:
             self.unet = GuidedDiffusionUNet(
@@ -153,34 +167,48 @@ class Palette(pl.LightningModule):
         video_array = torch.unsqueeze(y_t_noise, dim=1)
         for i in reversed(range(self.diffusion_val.timesteps)):
             t = torch.full((batch_size,), i, device=x.device)
-            y_t, noise_pred = self.diffusion_val.backward(
-                x,
-                y_t,
-                t,
-                self.unet,
-            )
+            y_t = self.diffusion_val.backward(x, y_t, t, self.unet)
 
-            if self.output_video:
-                y_t_noise = torch.cat([y_t, noise_pred], dim=3)
+            if self.output_video and batch_idx == 0:
                 video_array = torch.cat(
-                    [video_array, torch.unsqueeze(y_t_noise, dim=1)],
+                    [video_array, torch.unsqueeze(y_t, dim=1)],
                     dim=1,
                 )
 
-        if self.output_video:
+        if self.output_video and batch_idx == 0:
             for ind, video in enumerate(video_array):
                 video = video.permute(0, 2, 3, 1).cpu()
                 video = self.transform_back(video)
 
                 index = batch_size * batch_idx + ind
-                write_video(f"./validation_{index}.mp4", video, fps=50)
+                write_video(
+                    os.path.join(
+                        self.logger.log_dir,
+                        "val_diffusion",
+                        f"diffusion_{index}.mp4",
+                    ),
+                    video,
+                    fps=self.diffusion_val.timesteps / 10,
+                )
+
+            for ind, y_tx in enumerate(y_t):
+                index = batch_size * batch_idx + ind
+                write_png(
+                    self.transform_back(y_tx).cpu(),
+                    os.path.join(
+                        self.logger.log_dir,
+                        "val_output",
+                        f"output_{index}.png",
+                    ),
+                    compression_level=0,
+                )
 
         self.log("val_ssim", ssim(y_t, y_0, data_range=1.0), prog_bar=True)
         self.log("val_psnr", psnr(y_t, y_0, data_range=1.0), prog_bar=True)
 
 
 class DiffusionModel(nn.Module):
-    def __init__(self, start, end, timesteps: int = 2000, device="cpu"):
+    def __init__(self, start, end, timesteps: int, device="cpu"):
         super().__init__()
 
         self.timesteps = timesteps
@@ -188,10 +216,6 @@ class DiffusionModel(nn.Module):
 
         self.register_buffer("alphas", 1 - betas)
         self.register_buffer("gammas", torch.cumprod(self.alphas, axis=0))
-        self.register_buffer(
-            "gammas_prev",
-            F.pad(self.gammas[:-1], (1, 0), value=1),
-        )
 
     def forward(self, y_0, t):
         """
@@ -220,35 +244,21 @@ class DiffusionModel(nn.Module):
 
         """
 
+        alpha = self.get_value(self.alphas, t)
         gamma = self.get_value(self.gammas, t)
         noise_pred = noise_fn(x, y_t, gamma.view(-1))
-        y0_pred = self._predict_y0(y_t, gamma, noise_pred)
-        y0_pred = y0_pred.clamp(-1, 1)
-        mean, log_variance = self._q_posterior(y0_pred, y_t, t)
+
+        # Directly compute y_{}
+        mean = (1 / torch.sqrt(alpha)) * (
+            y_t -
+            ((1 - alpha) / (1 - gamma)) * noise_pred
+        )
+        mean = torch.clamp(mean, -1, 1)
+        sqrt_variance = torch.sqrt(1 - alpha)
 
         noise = torch.randn_like(y_t) * (t > 0).view(-1, 1, 1, 1)
 
-        return mean + torch.exp(0.5 * log_variance) * noise, noise_pred
-
-    def _q_posterior(self, y_0, y_t, t):
-        alpha = self.get_value(self.alphas, t)
-        gamma = self.get_value(self.gammas, t)
-        gamma_prev = self.get_value(self.gammas_prev, t)
-
-        c1 = torch.sqrt(gamma_prev) * (1 - alpha) / (1 - gamma)
-        c2 = torch.sqrt(alpha) * (1 - gamma_prev) / (1 - gamma)
-
-        mean = c1 * y_0 + c2 * y_t
-        variance = (1 - gamma_prev) * (1 - alpha) / (1 - gamma)
-        variance = variance.clip(1e-20)
-
-        return mean, variance
-
-    def _predict_y0(self, y_t, gamma, noise_pred):
-        return (
-            torch.sqrt(1 / gamma) * y_t -
-            torch.sqrt(1 / gamma - 1) * noise_pred
-        )
+        return mean + sqrt_variance * noise
 
     def get_value(self, values, t):
         """

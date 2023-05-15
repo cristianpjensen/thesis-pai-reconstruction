@@ -26,9 +26,9 @@ class ImageDataModule(pl.LightningDataModule):
             transforms.ConvertImageDtype(torch.float32),
         ])
 
-    def _get_pairs(self):
-        input_imgs = get_image_filenames(self.input_dir)
-        target_imgs = get_image_filenames(self.target_dir)
+    def _get_pairs(self, input_dir, target_dir):
+        input_imgs = get_image_filenames(input_dir)
+        target_imgs = get_image_filenames(target_dir)
 
         if len(input_imgs) != len(target_imgs):
             raise Exception("There should be the same amount of input" +
@@ -41,19 +41,19 @@ class ImageDataModule(pl.LightningDataModule):
 
     def setup(self, stage: str):
         if stage == "fit":
-            batches = self._get_pairs()
+            batches = self._get_pairs(self.input_dir, self.target_dir)
             split_index = round(len(batches) * (1 - self.val_size))
             self.train_pairs = batches[:split_index]
             self.val_pairs = batches[split_index:]
 
         if stage == "validate":
-            self.val_pairs = self._get_pairs()
+            self.val_pairs = self._get_pairs(self.input_dir, self.target_dir)
 
         if stage == "test":
-            self.test_pairs = self._get_pairs()
+            self.test_pairs = self._get_pairs(self.input_dir, self.target_dir)
 
         if stage == "predict":
-            self.pred_pairs = self._get_pairs()
+            self.pred_pairs = self._get_pairs(self.input_dir, self.target_dir)
 
     def train_dataloader(self):
         return DataLoader(
@@ -79,6 +79,14 @@ class ImageDataModule(pl.LightningDataModule):
             drop_last=True,
         )
 
+    def predict_dataloader(self):
+        return DataLoader(
+            ImageDataset(self.pred_pairs, transform=self.transform),
+            batch_size=self.batch_size,
+            shuffle=False,
+            drop_last=True,
+        )
+
 
 class ImageDataset(Dataset):
     """Dataset class used for image data that has input and targets in separate
@@ -86,27 +94,27 @@ class ImageDataset(Dataset):
 
     def __init__(
         self,
-        pairs: list[(str, str)],
+        paths: list[(str, str)] | list[(str,)],
         transform=None,
     ):
         super().__init__()
 
-        self.pairs = pairs
+        self.paths = paths
         self.transform = transform
 
     def __len__(self):
-        return len(self.pairs)
+        return len(self.paths)
 
     def __getitem__(self, idx):
-        input_path, target_path = self.pairs[idx]
-        input_tensor = read_image(input_path, mode=ImageReadMode.RGB)
-        target_tensor = read_image(target_path, mode=ImageReadMode.RGB)
+        paths = self.paths[idx]
 
-        if self.transform:
-            input_tensor = self.transform(input_tensor)
-            target_tensor = self.transform(target_tensor)
+        output = []
+        for path in paths:
+            tensor = read_image(path, mode=ImageReadMode.RGB)
+            tensor = self.transform(tensor)
+            output.append(tensor.float())
 
-        return input_tensor.float(), target_tensor.float()
+        return output
 
 
 def get_image_filenames(dir: str):

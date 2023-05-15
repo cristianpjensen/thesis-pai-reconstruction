@@ -141,6 +141,9 @@ class ResNetGAN(pl.LightningModule):
         self.log("val_ssim", g_ssim, prog_bar=True)
         self.log("val_psnr", g_psnr, prog_bar=True)
 
+    def predict_step(self, batch, batch_idx):
+        return self.forward(batch[0])
+
 
 class UNet(nn.Module):
     def __init__(

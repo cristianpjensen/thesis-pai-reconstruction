@@ -9,7 +9,7 @@ from torchmetrics.functional import (
 import pytorch_lighting as pl
 
 
-class Pix2Pix(pl.LightningModule):
+class ResNetGAN(pl.LightningModule):
     def __init__(self, l1_lambda: float):
         super().__init__()
         self.save_hyperparameters()

@@ -4,6 +4,7 @@ import pathlib
 from models.pix2pix import Pix2Pix
 from models.palette import Palette
 from models.transgan import TransGAN
+from models.resnet import ResNetGAN
 from dataset import ImageDataModule
 from callbacks.ema import EMACallback
 
@@ -30,6 +31,9 @@ def main(hparams):
 
         case "transgan":
             model = TransGAN(l1_lambda=hparams.l1_lambda)
+
+        case "resnet":
+            model = ResNetGAN(l1_lambda=hparams.l1_lambda)
 
     if model is None:
         raise ValueError(f"Incorrect model name ({hparams.model})")

@@ -58,10 +58,10 @@ def main(hparams):
     inputs = torch.cat(inputs, axis=0).to(model.device)
 
     targets = [batch[1] for batch in data_module.predict_dataloader()]
-    targets = torch.cat(targets, axis=0)
+    targets = torch.cat(targets, axis=0).cpu()
 
-    preds = model(inputs).cpu()
-    preds = torch.clamp(preds, 0, 1)
+    preds = model(inputs)
+    preds = torch.clamp(preds, 0, 1).cpu()
 
     print("SSIM:", ssim(preds, targets, data_range=1.0).tolist())
     print("pSNR:", psnr(preds, targets, data_range=1.0).tolist())

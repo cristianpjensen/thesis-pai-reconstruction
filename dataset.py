@@ -24,7 +24,6 @@ class ImageDataModule(pl.LightningDataModule):
         self.transform = transforms.Compose([
             transforms.Resize((256, 256), antialias=True),
             transforms.ConvertImageDtype(torch.float32),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
         ])
 
     def _get_pairs(self, input_dir, target_dir):

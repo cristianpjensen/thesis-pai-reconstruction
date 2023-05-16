@@ -17,6 +17,11 @@ import pathlib
 import os
 
 
+to_int = transforms.Compose([
+    transforms.ConvertImageDtype(torch.uint8),
+])
+
+
 def main(hparams):
     pl.seed_everything(42, workers=True)
 
@@ -24,15 +29,19 @@ def main(hparams):
     match hparams.model:
         case "pix2pix":
             model = Pix2Pix.load_from_checkpoint(hparams.checkpoint)
+            model.freeze()
 
         case "palette":
             model = Palette.load_from_checkpoint(hparams.checkpoint)
+            model.freeze()
 
         case "transgan":
             model = TransGAN.load_from_checkpoint(hparams.checkpoint)
+            model.freeze()
 
         case "resnet":
             model = ResNetGAN.load_from_checkpoint(hparams.checkpoint)
+            model.freeze()
 
     if model is None:
         raise ValueError(f"Incorrect model name ({hparams.model})")
@@ -41,15 +50,18 @@ def main(hparams):
         hparams.input_dir,
         hparams.target_dir,
         batch_size=hparams.batch_size,
-        val_size=0.3,
     )
+    data_module.setup("predict")
 
-    trainer = pl.Trainer()
-    preds = trainer.predict(model, data_module)
-    preds = torch.cat(preds, axis=0)
+    # Get inputs and outputs into big tensors
+    inputs = [batch[0] for batch in data_module.predict_dataloader()]
+    inputs = torch.cat(inputs, axis=0).to(model.device)
 
-    targets = [batch[0] for batch in data_module.predict_dataloader()]
+    targets = [batch[1] for batch in data_module.predict_dataloader()]
     targets = torch.cat(targets, axis=0)
+
+    preds = model(inputs).cpu()
+    preds = torch.clamp(preds, 0, 1)
 
     print("SSIM:", ssim(preds, targets, data_range=1.0).tolist())
     print("pSNR:", psnr(preds, targets, data_range=1.0).tolist())
@@ -65,10 +77,6 @@ def main(hparams):
 
     with open(os.path.join(hparams.pred_dir, "depth_ssim.csv"), "w") as f:
         f.write(ssim_over_depth_string)
-
-    to_int = transforms.Compose([
-        transforms.ConvertImageDtype(torch.uint8),
-    ])
 
     for index, pred in enumerate(preds):
         write_png(

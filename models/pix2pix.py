@@ -8,7 +8,6 @@ from torchmetrics.functional import (
     peak_signal_noise_ratio as psnr,
     structural_similarity_index_measure as ssim,
 )
-import torchvision.transforms as transforms
 import pytorch_lightning as pl
 
 
@@ -23,10 +22,6 @@ class Pix2Pix(pl.LightningModule):
         self.discriminator = Patch70Discriminator()
 
         self.l1_lambda = l1_lambda
-
-        self.transform_back = transforms.Compose([
-            transforms.Lambda(lambda x: 0.5 * x + 0.5),
-        ])
 
     def forward(self, x):
         return self.generator(x)
@@ -129,9 +124,6 @@ class Pix2Pix(pl.LightningModule):
         pred_label = self.discriminator(input, pred)
         g_loss = self.generator_loss(pred, pred_label, target)
 
-        target = self.transform_back(target)
-        pred = self.transform_back(pred)
-
         g_psnr = psnr(pred, target, data_range=1.0)
         g_ssim = ssim(pred, target, data_range=1.0)
         self.log("g_loss", g_loss, prog_bar=True)
@@ -146,17 +138,11 @@ class Pix2Pix(pl.LightningModule):
         input, target = batch
         pred = self.forward(input)
 
-        target = self.transform_back(target)
-        pred = self.transform_back(pred)
-
         g_psnr = psnr(pred, target, data_range=1.0)
         g_ssim = ssim(pred, target, data_range=1.0)
 
         self.log("val_ssim", g_ssim, prog_bar=True)
         self.log("val_psnr", g_psnr, prog_bar=True)
-
-    def predict_step(self, batch, batch_idx):
-        return self.forward(batch[0])
 
 
 class GeneratorUNet(nn.Module):

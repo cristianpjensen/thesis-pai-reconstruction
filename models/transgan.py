@@ -143,9 +143,6 @@ class TransGAN(pl.LightningModule):
         self.log("val_ssim", g_ssim, prog_bar=True)
         self.log("val_psnr", g_psnr, prog_bar=True)
 
-    def predict_step(self, batch, batch_idx):
-        return self.forward(batch[0])
-
 
 class TransformerUNet(nn.Module):
     def __init__(self, in_channels: int = 3, out_channels: int = 3):

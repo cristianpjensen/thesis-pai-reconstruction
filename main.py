@@ -5,6 +5,7 @@ from models.pix2pix import Pix2Pix
 from models.palette import Palette
 from models.transgan import TransGAN
 from models.resnet import ResNetGAN
+from models.attention_unet import AttentionUNet
 from dataset import ImageDataModule
 from callbacks.ema import EMACallback
 
@@ -35,6 +36,9 @@ def main(hparams):
 
         case "resnet":
             model = ResNetGAN(l1_lambda=hparams.l1_lambda)
+
+        case "attention-unet":
+            model = AttentionUNet(l1_lambda=hparams.l1_lambda)
 
     if model is None:
         raise ValueError(f"Incorrect model name ({hparams.model})")
@@ -86,7 +90,7 @@ if __name__ == "__main__":
         "-m",
         "--model",
         default="pix2pix",
-        choices=["pix2pix", "palette", "transgan", "resnet"],
+        choices=["pix2pix", "palette", "transgan", "resnet", "attention-unet"],
     )
     args = parser.parse_args()
 

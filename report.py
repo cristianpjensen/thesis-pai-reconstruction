@@ -10,6 +10,7 @@ from models.pix2pix import Pix2Pix
 from models.palette import Palette
 from models.transgan import TransGAN
 from models.resnet import ResNetGAN
+from models.attention_unet import AttentionUNet
 from reporting.depth_ssim import depth_ssim
 from dataset import ImageDataModule
 from argparse import ArgumentParser
@@ -41,6 +42,10 @@ def main(hparams):
 
         case "resnet":
             model = ResNetGAN.load_from_checkpoint(hparams.checkpoint)
+            model.freeze()
+
+        case "attention-unet":
+            model = AttentionUNet.load_from_checkpoint(hparams.checkpoint)
             model.freeze()
 
     if model is None:
@@ -112,7 +117,7 @@ if __name__ == "__main__":
         "-m",
         "--model",
         default="pix2pix",
-        choices=["pix2pix", "palette", "transgan", "resnet"],
+        choices=["pix2pix", "palette", "transgan", "resnet", "attention-unet"],
     )
     args = parser.parse_args()
 

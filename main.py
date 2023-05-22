@@ -1,3 +1,4 @@
+import torch
 import pytorch_lightning as pl
 import argparse
 from argparse import ArgumentParser
@@ -5,14 +6,19 @@ import pathlib
 from models.pix2pix import Pix2Pix
 from models.palette import Palette
 from models.transgan import TransGAN
-from models.resnet import ResNetGAN
 from models.attention_unet import AttentionUNet
 from dataset import ImageDataModule
 from callbacks.ema import EMACallback
 
 
+torch.set_float32_matmul_precision("medium")
+
+
 def main(hparams):
     pl.seed_everything(42, workers=True)
+
+    channel_mults = [int(x) for x in hparams.channel_mults.split(",")]
+    att_mults = [int(x) for x in hparams.attention_mults.split(",")]
 
     model = None
     match hparams.model:
@@ -20,6 +26,26 @@ def main(hparams):
             model = Pix2Pix(
                 in_channels=1 if hparams.grayvalues else 3,
                 out_channels=1 if hparams.grayvalues else 3,
+                channel_mults=channel_mults,
+                dropout=hparams.dropout,
+                l1_lambda=hparams.l1_lambda,
+            )
+
+        case "attention-unet":
+            model = AttentionUNet(
+                in_channels=1 if hparams.grayvalues else 3,
+                out_channels=1 if hparams.grayvalues else 3,
+                channel_mults=channel_mults,
+                dropout=hparams.dropout,
+                l1_lambda=hparams.l1_lambda,
+            )
+
+        case "transgan":
+            model = TransGAN(
+                in_channels=1 if hparams.grayvalues else 3,
+                out_channels=1 if hparams.grayvalues else 3,
+                channel_mults=channel_mults,
+                dropout=hparams.dropout,
                 l1_lambda=hparams.l1_lambda,
             )
 
@@ -28,34 +54,11 @@ def main(hparams):
                 in_channels=1 if hparams.grayvalues else 3,
                 out_channels=1 if hparams.grayvalues else 3,
                 inner_channels=64,
-                channel_mults=(1, 2, 4, 8),
+                channel_mults=channel_mults,
+                attention_res=att_mults,
+                dropout=hparams.dropout,
                 num_res_blocks=2,
-                attention_res=(8,),
                 num_heads=4,
-                dropout=0.2,
-                output_diffusion_videos=True,
-                use_guided_diffusion=True,
-            )
-
-        case "transgan":
-            model = TransGAN(
-                in_channels=1 if hparams.grayvalues else 3,
-                out_channels=1 if hparams.grayvalues else 3,
-                l1_lambda=hparams.l1_lambda,
-            )
-
-        case "resnet":
-            model = ResNetGAN(
-                in_channels=1 if hparams.grayvalues else 3,
-                out_channels=1 if hparams.grayvalues else 3,
-                l1_lambda=hparams.l1_lambda,
-            )
-
-        case "attention-unet":
-            model = AttentionUNet(
-                in_channels=1 if hparams.grayvalues else 3,
-                out_channels=1 if hparams.grayvalues else 3,
-                l1_lambda=hparams.l1_lambda,
             )
 
     if model is None:
@@ -121,10 +124,31 @@ if __name__ == "__main__":
         help="Whether to turn the images into grayvalue images."
     )
     parser.add_argument(
+        "--channel-mults",
+        default="1,2,4,8",
+        help="""
+            Defines the U-net architecture's depth and width. Should be
+            comma-separated powers of 2.
+        """,
+    )
+    parser.add_argument(
+        "--attention-mults",
+        default="8",
+        help="""
+            At what channel multiples attention should be used, if the model
+            supports it. Should be comma-separated powers of 2.
+        """,
+    )
+    parser.add_argument(
+        "--dropout",
+        default=0.0,
+        type=float,
+    )
+    parser.add_argument(
         "-m",
         "--model",
         default="pix2pix",
-        choices=["pix2pix", "palette", "transgan", "resnet", "attention-unet"],
+        choices=["pix2pix", "palette", "transgan", "attention-unet"],
     )
     args = parser.parse_args()
 

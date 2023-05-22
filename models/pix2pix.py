@@ -12,13 +12,25 @@ import pytorch_lightning as pl
 
 
 class Pix2Pix(pl.LightningModule):
-    def __init__(self, in_channels: int, out_channels: int, l1_lambda: float):
+    def __init__(
+        self,
+        in_channels: int = 3,
+        out_channels: int = 3,
+        channel_mults: tuple[int] = (1, 2, 4, 8, 8, 8, 8),
+        dropout: float = 0.5,
+        l1_lambda: float = 50,
+    ):
         super().__init__()
         self.save_hyperparameters()
         self.example_input_array = torch.Tensor(32, in_channels, 256, 256)
         self.automatic_optimization = False
 
-        self.generator = GeneratorUNet(in_channels, out_channels)
+        self.generator = GeneratorUNet(
+            in_channels,
+            out_channels,
+            channel_mults=channel_mults,
+            dropout=dropout,
+        )
         self.discriminator = Patch70Discriminator(in_channels)
 
         self.l1_lambda = l1_lambda
@@ -148,85 +160,84 @@ class Pix2Pix(pl.LightningModule):
 
 
 class GeneratorUNet(nn.Module):
-    """The performance of this generator is the baseline to which we compare
-    other models."""
-
     def __init__(
         self,
         in_channels: int = 3,
         out_channels: int = 3,
+        channel_mults: tuple[int] = (1, 2, 4, 8, 8, 8, 8),
+        dropout: float = 0.5,
     ):
         super().__init__()
 
-        # According to the baseline, the batchnorm should be omitted in the
-        # first layer, but according to the pix2pix paper it should be omitted
-        # in the last layer.
+        downs = []
+        for index, mult in enumerate(channel_mults):
+            channels = mult * 64
 
-        # Input: 256 (pixels), 3 (channels)
-        self.down1 = Downsample(in_channels, 64, batchnorm=False)  # 128, 64
-        self.down2 = Downsample(64, 128)   # 64, 128
-        self.down3 = Downsample(128, 256)  # 32, 256
-        self.down4 = Downsample(256, 512)  # 16, 512
-        self.down5 = Downsample(512, 512)  # 8, 512
-        self.down6 = Downsample(512, 512)  # 4, 512
-        self.down7 = Downsample(512, 512)  # 2, 512
-        self.down8 = Downsample(512, 512)  # 1, 512
+            downs.append(
+                Downsample(
+                    in_channels,
+                    channels,
+                    batchnorm=index != 0,
+                )
+            )
 
-        # Skip-connections are added here, so the amount of channels of the
-        # output is doubled.
-        self.up8 = Upsample(512, 512, dropout=True)   # 2, 1024
-        self.up7 = Upsample(1024, 512, dropout=True)  # 4, 1024
-        self.up6 = Upsample(1024, 512, dropout=True)  # 8, 1024
-        self.up5 = Upsample(1024, 512)  # 16, 1024
-        self.up4 = Upsample(1024, 256)  # 32, 512
-        self.up3 = Upsample(512, 128)   # 64, 256
-        self.up2 = Upsample(256, 64)    # 128, 128
-        self.up1 = nn.ConvTranspose2d(
-            128,
-            out_channels,
-            kernel_size=4,
-            stride=2,
-            padding=1,
-            bias=False,
+            in_channels = channels
+
+        self.downs = nn.ModuleList(downs)
+
+        ups = []
+        for index, mult in reversed(list(enumerate(channel_mults[:-1]))):
+            channels = mult * 64
+
+            ups.append(
+                Upsample(
+                    in_channels,
+                    channels,
+                    dropout=dropout if mult == max(channel_mults) else 0,
+                )
+            )
+
+            # Multiply by 2 for the skip-connections.
+            in_channels = channels * 2
+
+        ups.append(
+            nn.ConvTranspose2d(
+                in_channels,
+                out_channels,
+                kernel_size=4,
+                stride=2,
+                padding=1,
+                bias=False,
+            )
         )
-        self.out = nn.Tanh()
 
-        nn.init.normal_(self.up1.weight, 0., 0.02)
+        self.ups = nn.ModuleList(ups)
+        self.out = nn.Tanh()
 
     def forward(self, x):
         """
-        e: encoder layers
-        d: decoder layers
+        :param x: [N x in_channels x H x W]
+        :returns: [N x out_channels x H x W]
         """
 
-        # Encoder.
-        e1 = self.down1(x)
-        e2 = self.down2(e1)
-        e3 = self.down3(e2)
-        e4 = self.down4(e3)
-        e5 = self.down5(e4)
-        e6 = self.down6(e5)
-        e7 = self.down7(e6)
-        e8 = self.down8(e7)
+        h = x.type(torch.float32)
 
-        # Decoder with skip-connections.
-        d8 = self.up8(e8)
-        d8 = torch.cat((d8, e7), dim=1)
-        d7 = self.up7(d8)
-        d7 = torch.cat((d7, e6), dim=1)
-        d6 = self.up6(d7)
-        d6 = torch.cat((d6, e5), dim=1)
-        d5 = self.up5(d6)
-        d5 = torch.cat((d5, e4), dim=1)
-        d4 = self.up4(d5)
-        d4 = torch.cat((d4, e3), dim=1)
-        d3 = self.up3(d4)
-        d3 = torch.cat((d3, e2), dim=1)
-        d2 = self.up2(d3)
-        d2 = torch.cat((d2, e1), dim=1)
-        d1 = self.up1(d2)
+        feats = []
+        for layer in self.downs:
+            h = layer(h)
+            feats.append(h)
 
-        return self.out(d1)
+        # Remove last feature map, since that should not be used in
+        # skip-connection.
+        feats.pop()
+
+        for index, layer in enumerate(self.ups):
+            if index != 0:
+                h = torch.cat([h, feats.pop()], dim=1)
+
+            h = layer(h)
+
+        return self.out(h)
 
 
 class Patch70Discriminator(nn.Module):
@@ -329,37 +340,23 @@ class Upsample(nn.Module):
         size: int = 4,
         stride: int = 2,
         padding: int = 1,
-        dropout: bool = False,
+        dropout: float = 0.5,
     ):
         super().__init__()
 
-        if dropout:
-            self.up = nn.Sequential(
-                nn.ConvTranspose2d(
-                    in_channels,
-                    out_channels,
-                    kernel_size=size,
-                    stride=stride,
-                    padding=padding,
-                    bias=False,
-                ),
-                nn.BatchNorm2d(out_channels),
-                nn.Dropout(0.5),
-                nn.ReLU(),
-            )
-        else:
-            self.up = nn.Sequential(
-                nn.ConvTranspose2d(
-                    in_channels,
-                    out_channels,
-                    kernel_size=size,
-                    stride=stride,
-                    padding=padding,
-                    bias=False,
-                ),
-                nn.BatchNorm2d(out_channels),
-                nn.ReLU(),
-            )
+        self.up = nn.Sequential(
+            nn.ConvTranspose2d(
+                in_channels,
+                out_channels,
+                kernel_size=size,
+                stride=stride,
+                padding=padding,
+                bias=False,
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.Dropout(dropout) if dropout != 0 else nn.Identity(),
+            nn.ReLU(),
+        )
 
         self.up.apply(self.init_weights)
 

@@ -535,7 +535,7 @@ class UNet(nn.Module):
         emb = self.cond_embed(gamma_embedding(gammas, self.inner_channel))
 
         h = torch.cat([x, y], dim=1)
-        h = x.type(torch.float32)
+        h = h.type(torch.float32)
         for module in self.input_blocks:
             h = module(h, emb)
             hs.append(h)
@@ -545,19 +545,3 @@ class UNet(nn.Module):
             h = module(h, emb)
         h = h.type(x.dtype)
         return self.out(h)
-
-
-if __name__ == '__main__':
-    b, c, h, w = 3, 6, 64, 64
-    timsteps = 100
-    model = UNet(
-        image_size=h,
-        in_channel=c,
-        inner_channel=64,
-        out_channel=3,
-        res_blocks=2,
-        attn_res=[8]
-    )
-    x = torch.randn((b, c, h, w))
-    emb = torch.ones((b, ))
-    out = model(x, emb)

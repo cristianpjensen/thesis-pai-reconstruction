@@ -12,14 +12,14 @@ import pytorch_lightning as pl
 
 
 class Pix2Pix(pl.LightningModule):
-    def __init__(self, l1_lambda: float):
+    def __init__(self, in_channels: int, out_channels: int, l1_lambda: float):
         super().__init__()
         self.save_hyperparameters()
-        self.example_input_array = torch.Tensor(32, 3, 256, 256)
+        self.example_input_array = torch.Tensor(32, in_channels, 256, 256)
         self.automatic_optimization = False
 
-        self.generator = GeneratorUNet()
-        self.discriminator = Patch70Discriminator()
+        self.generator = GeneratorUNet(in_channels, out_channels)
+        self.discriminator = Patch70Discriminator(in_channels)
 
         self.l1_lambda = l1_lambda
 
@@ -102,7 +102,6 @@ class Pix2Pix(pl.LightningModule):
 
         # Train discriminator.
         self.toggle_optimizer(opt_d)
-        self.discriminator.zero_grad(set_to_none=True)
 
         input, target = batch
         pred = self.forward(input)
@@ -112,13 +111,14 @@ class Pix2Pix(pl.LightningModule):
         d_loss = self.discriminator_loss(pred_label, target_label)
         self.log("d_loss", d_loss, prog_bar=True)
 
+        self.discriminator.zero_grad(set_to_none=True)
         self.manual_backward(d_loss)
         opt_d.step()
+
         self.untoggle_optimizer(opt_d)
 
         # Train generator.
         self.toggle_optimizer(opt_g)
-        self.generator.zero_grad(set_to_none=True)
 
         pred = self.forward(input)
         pred_label = self.discriminator(input, pred)
@@ -130,8 +130,10 @@ class Pix2Pix(pl.LightningModule):
         self.log("train_ssim", g_ssim, prog_bar=True)
         self.log("train_psnr", g_psnr, prog_bar=True)
 
+        self.generator.zero_grad(set_to_none=True)
         self.manual_backward(g_loss)
         opt_g.step()
+
         self.untoggle_optimizer(opt_g)
 
     def validation_step(self, batch, batch_idx):

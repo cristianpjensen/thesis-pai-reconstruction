@@ -55,7 +55,7 @@ class Palette(pl.LightningModule):
 
         if use_guided_diffusion:
             self.unet = GuidedDiffusionUNet(
-                in_channel=in_channels * 2,
+                in_channel=in_channels,
                 out_channel=out_channels,
                 inner_channel=inner_channels,
                 res_blocks=num_res_blocks,
@@ -79,14 +79,30 @@ class Palette(pl.LightningModule):
 
         # Training scheduler
         self.diffusion = DiffusionModel(1e-6, 0.01, 2000, device=self.device)
-        self.diffusion_val = DiffusionModel(1e-4, 0.09, 1000, device=self.device)
+        self.diffusion_inf = DiffusionModel(1e-4, 0.09, 1000, device=self.device)
 
-        self.transform_back = transforms.Compose([
-            transforms.ConvertImageDtype(torch.uint8),
-        ])
+        self.denormalize = transforms.Lambda(lambda x: (x + 1) / 2)
+        self.to_int = transforms.ConvertImageDtype(torch.uint8)
 
-    def forward(self, x):
-        return x
+    def forward(self, x, output_video=False):
+        batch_size = x.shape[0]
+
+        y_t = torch.randn_like(x)
+        video_array = torch.unsqueeze(y_t, dim=1)
+        for i in reversed(range(self.diffusion_inf.timesteps)):
+            t = torch.full((batch_size,), i, device=x.device)
+            y_t = self.diffusion_inf.backward(x, y_t, t, self.unet)
+
+            if output_video:
+                video_array = torch.cat(
+                    [video_array, torch.unsqueeze(y_t, dim=1)],
+                    dim=1,
+                )
+
+        if output_video:
+            return y_t, video_array
+
+        return y_t
 
     def loss(
         self,
@@ -164,22 +180,13 @@ class Palette(pl.LightningModule):
         x, y_0 = batch
         batch_size = x.shape[0]
 
-        y_t = torch.randn_like(y_0)
-        video_array = torch.unsqueeze(y_t, dim=1)
-        for i in reversed(range(self.diffusion_val.timesteps)):
-            t = torch.full((batch_size,), i, device=x.device)
-            y_t = self.diffusion_val.backward(x, y_t, t, self.unet)
+        output_video = self.output_video and batch_idx == 0
+        y_pred, video_array = self.forward(x, output_video=output_video)
 
-            if self.output_video and batch_idx == 0:
-                video_array = torch.cat(
-                    [video_array, torch.unsqueeze(y_t, dim=1)],
-                    dim=1,
-                )
-
-        if self.output_video and batch_idx == 0:
+        if output_video:
             for ind, video in enumerate(video_array):
                 video = video.permute(0, 2, 3, 1).cpu()
-                video = self.transform_back(video)
+                video = self.to_int(self.denormalize(video))
 
                 index = batch_size * batch_idx + ind
                 write_video(
@@ -189,13 +196,13 @@ class Palette(pl.LightningModule):
                         f"diffusion_{index}.mp4",
                     ),
                     video,
-                    fps=self.diffusion_val.timesteps / 10,
+                    fps=self.diffusion_inf.timesteps / 10,
                 )
 
-            for ind, y_tx in enumerate(y_t):
+            for ind, y_tx in enumerate(y_pred):
                 index = batch_size * batch_idx + ind
                 write_png(
-                    self.transform_back(y_tx).cpu(),
+                    self.to_int(self.denormalize(y_tx)).cpu(),
                     os.path.join(
                         self.logger.log_dir,
                         "val_output",
@@ -204,8 +211,24 @@ class Palette(pl.LightningModule):
                     compression_level=0,
                 )
 
-        self.log("val_ssim", ssim(y_t, y_0, data_range=1.0), prog_bar=True)
-        self.log("val_psnr", psnr(y_t, y_0, data_range=1.0), prog_bar=True)
+        self.log(
+            "val_ssim",
+            ssim(
+                self.denormalize(y_pred),
+                self.denormalize(y_0),
+                data_range=1.0
+            ),
+            prog_bar=True,
+        )
+        self.log(
+            "val_psnr",
+            psnr(
+                self.denormalize(y_pred),
+                self.denormalize(y_0),
+                data_range=1.0
+            ),
+            prog_bar=True,
+        )
 
 
 class DiffusionModel(nn.Module):
@@ -249,17 +272,15 @@ class DiffusionModel(nn.Module):
         gamma = self.get_value(self.gammas, t)
         noise_pred = noise_fn(x, y_t, gamma.view(-1))
 
-        # Directly compute y_{}
         mean = (1 / torch.sqrt(alpha)) * (
             y_t -
-            ((1 - alpha) / (1 - gamma)) * noise_pred
+            ((1 - alpha) / torch.sqrt(1 - gamma)) * noise_pred
         )
-        mean = torch.clamp(mean, -1, 1)
         sqrt_variance = torch.sqrt(1 - alpha)
 
         noise = torch.randn_like(y_t) * (t > 0).view(-1, 1, 1, 1)
 
-        return mean + sqrt_variance * noise
+        return torch.clamp(mean + sqrt_variance * noise, -1, 1)
 
     def get_value(self, values, t):
         """
@@ -826,9 +847,9 @@ class Block(nn.Module):
 
 if __name__ == "__main__":
     # Make sure that the shapes are correct.
-    x = torch.randn((3, 6, 256, 256))
+    x = torch.randn((3, 2, 256, 256))
     emb = torch.ones((3,))
 
-    unet = UNet(6, 3, num_res_blocks=2, attention_res=(8,))
+    unet = UNet(1, 1, num_res_blocks=2, attention_res=(8,))
     y = unet(x, emb)
     print(x.shape, y.shape)

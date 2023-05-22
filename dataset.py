@@ -13,18 +13,31 @@ class ImageDataModule(pl.LightningDataModule):
         input_dir: str,
         target_dir: str,
         batch_size: int = 1,
-        val_size: float = 0.2,
+        val_size: float | int = 0.2,
+        normalize: bool = False,
+        grayvalues: bool = False,
     ):
         super().__init__()
         self.input_dir = input_dir
         self.target_dir = target_dir
         self.batch_size = batch_size
         self.val_size = val_size
+        self.normalize = normalize
+        self.grayvalues = grayvalues
 
-        self.transform = transforms.Compose([
-            transforms.Resize((256, 256), antialias=True),
-            transforms.ConvertImageDtype(torch.float32),
-        ])
+        if normalize:
+            self.transform = transforms.Compose([
+                transforms.Resize((256, 256), antialias=True),
+                transforms.ConvertImageDtype(torch.float32),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+                transforms.Grayscale(1 if grayvalues else 3),
+            ])
+        else:
+            self.transform = transforms.Compose([
+                transforms.Resize((256, 256), antialias=True),
+                transforms.ConvertImageDtype(torch.float32),
+                transforms.Grayscale(1 if grayvalues else 3),
+            ])
 
     def _get_pairs(self, input_dir, target_dir):
         input_imgs = get_image_filenames(input_dir)
@@ -42,7 +55,9 @@ class ImageDataModule(pl.LightningDataModule):
     def setup(self, stage: str):
         if stage == "fit":
             batches = self._get_pairs(self.input_dir, self.target_dir)
-            split_index = round(len(batches) * (1 - self.val_size))
+            split_index = round(
+                len(batches) * (1 - self.val_size)
+            ) if self.val_size < 1 else round(len(batches) - self.val_size)
             self.train_pairs = batches[:split_index]
             self.val_pairs = batches[split_index:]
 

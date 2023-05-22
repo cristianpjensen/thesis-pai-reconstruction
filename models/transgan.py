@@ -12,14 +12,14 @@ import pytorch_lightning as pl
 
 
 class TransGAN(pl.LightningModule):
-    def __init__(self, l1_lambda: float):
+    def __init__(self, in_channels: int, out_channels: int, l1_lambda: float):
         super().__init__()
         self.save_hyperparameters()
-        self.example_input_array = torch.Tensor(16, 3, 256, 256)
+        self.example_input_array = torch.Tensor(16, in_channels, 256, 256)
         self.automatic_optimization = False
 
-        self.generator = TransformerUNet()
-        self.discriminator = TransformerDiscriminator()
+        self.generator = TransformerUNet(in_channels, out_channels)
+        self.discriminator = TransformerDiscriminator(in_channels)
 
         self.l1_lambda = l1_lambda
 
@@ -102,7 +102,6 @@ class TransGAN(pl.LightningModule):
 
         # Train discriminator.
         self.toggle_optimizer(opt_d)
-        self.discriminator.zero_grad(set_to_none=True)
 
         input, target = batch
         pred = self.forward(input)
@@ -112,13 +111,14 @@ class TransGAN(pl.LightningModule):
         d_loss = self.discriminator_loss(pred_label, target_label)
         self.log("d_loss", d_loss, prog_bar=True)
 
+        self.discriminator.zero_grad(set_to_none=True)
         self.manual_backward(d_loss)
         opt_d.step()
+
         self.untoggle_optimizer(opt_d)
 
         # Train generator.
         self.toggle_optimizer(opt_g)
-        self.generator.zero_grad(set_to_none=True)
 
         pred = self.forward(input)
         pred_label = self.discriminator(input, pred)
@@ -129,8 +129,10 @@ class TransGAN(pl.LightningModule):
         self.log("train_ssim", g_ssim, prog_bar=True)
         self.log("train_psnr", g_psnr, prog_bar=True)
 
+        self.generator.zero_grad(set_to_none=True)
         self.manual_backward(g_loss)
         opt_g.step()
+
         self.untoggle_optimizer(opt_g)
 
     def validation_step(self, batch, batch_idx):
@@ -168,7 +170,13 @@ class TransformerUNet(nn.Module):
         self.up2 = Upsample(256, 64, 8)
         self.up1 = Upsample(128, 64, 8)
 
-        self.out = nn.Conv2d(64, 3, kernel_size=1, stride=1, padding=0)
+        self.out = nn.Conv2d(
+            64,
+            out_channels,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+        )
 
     def forward(self, x):
         """

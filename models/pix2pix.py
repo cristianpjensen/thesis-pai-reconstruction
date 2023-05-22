@@ -16,7 +16,7 @@ class Pix2Pix(pl.LightningModule):
         self,
         in_channels: int = 3,
         out_channels: int = 3,
-        channel_mults: tuple[int] = (1, 2, 4, 8, 8, 8, 8),
+        channel_mults: tuple[int] = (1, 2, 4, 8, 8, 8, 8, 8),
         dropout: float = 0.5,
         l1_lambda: float = 50,
     ):
@@ -25,13 +25,13 @@ class Pix2Pix(pl.LightningModule):
         self.example_input_array = torch.Tensor(32, in_channels, 256, 256)
         self.automatic_optimization = False
 
-        self.generator = GeneratorUNet(
+        self.generator = UNet(
             in_channels,
             out_channels,
             channel_mults=channel_mults,
             dropout=dropout,
         )
-        self.discriminator = Patch70Discriminator(in_channels)
+        self.discriminator = Discriminator(in_channels)
 
         self.l1_lambda = l1_lambda
 
@@ -159,12 +159,12 @@ class Pix2Pix(pl.LightningModule):
         self.log("val_psnr", g_psnr, prog_bar=True)
 
 
-class GeneratorUNet(nn.Module):
+class UNet(nn.Module):
     def __init__(
         self,
         in_channels: int = 3,
         out_channels: int = 3,
-        channel_mults: tuple[int] = (1, 2, 4, 8, 8, 8, 8),
+        channel_mults: tuple[int] = (1, 2, 4, 8, 8, 8, 8, 8),
         dropout: float = 0.5,
     ):
         super().__init__()
@@ -240,10 +240,7 @@ class GeneratorUNet(nn.Module):
         return self.out(h)
 
 
-class Patch70Discriminator(nn.Module):
-    """Discriminator used for the baseline. Discriminators with other patch
-    sizes can be found in the git history if necessary."""
-
+class Discriminator(nn.Module):
     def __init__(self, in_channels: int = 3):
         super().__init__()
 
@@ -294,31 +291,18 @@ class Downsample(nn.Module):
     ):
         super().__init__()
 
-        if batchnorm:
-            self.down = nn.Sequential(
-                nn.Conv2d(
-                    in_channels,
-                    out_channels,
-                    kernel_size=size,
-                    stride=stride,
-                    padding=padding,
-                    bias=False,
-                ),
-                nn.BatchNorm2d(out_channels),
-                nn.LeakyReLU(0.2),
-            )
-        else:
-            self.down = nn.Sequential(
-                nn.Conv2d(
-                    in_channels,
-                    out_channels,
-                    kernel_size=size,
-                    stride=stride,
-                    padding=padding,
-                    bias=False,
-                ),
-                nn.LeakyReLU(0.2),
-            )
+        self.down = nn.Sequential(
+            nn.Conv2d(
+                in_channels,
+                out_channels,
+                kernel_size=size,
+                stride=stride,
+                padding=padding,
+                bias=False,
+            ),
+            nn.BatchNorm2d(out_channels) if batchnorm else nn.Identity(),
+            nn.LeakyReLU(0.2),
+        )
 
         self.down.apply(self.init_weights)
 

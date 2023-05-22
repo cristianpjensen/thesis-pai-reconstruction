@@ -5,8 +5,7 @@ from argparse import ArgumentParser
 import pathlib
 from models.pix2pix import Pix2Pix
 from models.palette import Palette
-from models.transgan import TransGAN
-from models.attention_unet import AttentionUNet
+from models.attention_unet import AttentionUNetGAN
 from dataset import ImageDataModule
 from callbacks.ema import EMACallback
 
@@ -31,17 +30,8 @@ def main(hparams):
                 l1_lambda=hparams.l1_lambda,
             )
 
-        case "attention-unet":
-            model = AttentionUNet(
-                in_channels=1 if hparams.grayvalues else 3,
-                out_channels=1 if hparams.grayvalues else 3,
-                channel_mults=channel_mults,
-                dropout=hparams.dropout,
-                l1_lambda=hparams.l1_lambda,
-            )
-
-        case "transgan":
-            model = TransGAN(
+        case "attention_unet":
+            model = AttentionUNetGAN(
                 in_channels=1 if hparams.grayvalues else 3,
                 out_channels=1 if hparams.grayvalues else 3,
                 channel_mults=channel_mults,
@@ -148,7 +138,7 @@ if __name__ == "__main__":
         "-m",
         "--model",
         default="pix2pix",
-        choices=["pix2pix", "palette", "transgan", "attention-unet"],
+        choices=["pix2pix", "palette", "attention_unet"],
     )
     args = parser.parse_args()
 

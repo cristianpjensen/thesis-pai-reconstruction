@@ -11,14 +11,26 @@ from torchmetrics.functional import (
 import pytorch_lightning as pl
 
 
-class AttentionUNet(pl.LightningModule):
-    def __init__(self, in_channels: int, out_channels: int, l1_lambda: float):
+class AttentionUNetGAN(pl.LightningModule):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        channel_mults: tuple[int] = (1, 2, 4, 8, 8, 8, 8, 8),
+        dropout: float = 0.5,
+        l1_lambda: float = 50,
+    ):
         super().__init__()
         self.save_hyperparameters()
         self.example_input_array = torch.Tensor(32, in_channels, 256, 256)
         self.automatic_optimization = False
 
-        self.generator = UNet(in_channels, out_channels)
+        self.generator = AttentionUNet(
+            in_channels,
+            out_channels,
+            channel_mults=channel_mults,
+            dropout=dropout,
+        )
         self.discriminator = Discriminator(in_channels)
 
         self.l1_lambda = l1_lambda
@@ -147,7 +159,7 @@ class AttentionUNet(pl.LightningModule):
         self.log("val_psnr", g_psnr, prog_bar=True)
 
 
-class UNet(nn.Module):
+class AttentionUNet(nn.Module):
     """
     U-net with attention skip-connections.
 
@@ -157,76 +169,111 @@ class UNet(nn.Module):
         self,
         in_channels: int = 3,
         out_channels: int = 3,
+        channel_mults: tuple[int] = (1, 2, 4, 8, 8, 8, 8, 8),
+        dropout: float = 0.5,
     ):
         super().__init__()
 
-        self.conv1 = ConvBlock(in_channels, 64)
-        self.conv2 = ConvBlock(64, 128)
-        self.conv3 = ConvBlock(128, 256)
-        self.conv4 = ConvBlock(256, 512)
+        downs = []
+        for index, mult in enumerate(channel_mults):
+            channels = mult * 64
 
-        self.up4 = UpConv(512, 256)
-        self.att4 = AttentionBlock(256, 256, 128)
-        self.up_conv4 = ConvBlock(512, 256)
+            downs.append(
+                Downsample(
+                    in_channels,
+                    channels,
+                    batchnorm=index != 0,
+                )
+            )
 
-        self.up3 = UpConv(256, 128)
-        self.att3 = AttentionBlock(128, 128, 64)
-        self.up_conv3 = ConvBlock(256, 128)
+            in_channels = channels
 
-        self.up2 = UpConv(128, 64)
-        self.att2 = AttentionBlock(64, 64, 32)
-        self.up_conv2 = ConvBlock(128, 64)
+        self.downs = nn.ModuleList(downs)
 
-        self.out = ConvBlock(64, out_channels)
+        ups = []
+        atts = []
+        for index, mult in reversed(list(enumerate(channel_mults[:-1]))):
+            channels = mult * 64
+
+            ups.append(
+                Upsample(
+                    in_channels,
+                    channels,
+                    dropout=dropout if mult == max(channel_mults) else 0,
+                )
+            )
+
+            atts.append(AttentionBlock(channels, channels, channels // 2))
+
+            # Multiply by 2 for the skip-connections.
+            in_channels = channels * 2
+
+        ups.append(
+            nn.ConvTranspose2d(
+                in_channels,
+                out_channels,
+                kernel_size=4,
+                stride=2,
+                padding=1,
+                bias=False,
+            )
+        )
+
+        self.atts = nn.ModuleList(atts)
+        self.ups = nn.ModuleList(ups)
+        self.out = nn.Tanh()
 
     def forward(self, x):
         """
-        e: encoder layers
-        d: decoder layers
+        :param x: [N x in_channels x H x W]
+        :returns: [N x out_channels x H x W]
+
         """
 
-        e1 = self.conv1(x)
+        h = x.type(torch.float32)
 
-        e2 = F.max_pool2d(e1, 2)
-        e2 = self.conv2(e2)
+        feats = []
+        for layer in self.downs:
+            h = layer(h)
+            feats.append(h)
 
-        e3 = F.max_pool2d(e2, 2)
-        e3 = self.conv3(e3)
+        feats.pop()
 
-        e4 = F.max_pool2d(e3, 2)
-        e4 = self.conv4(e4)
+        for index, layer in enumerate(self.ups):
+            if index != 0:
+                att = self.atts[index - 1]
+                s = att(feats.pop(), h)
+                h = torch.cat([h, s], dim=1)
 
-        d4 = self.up4(e4)
-        s3 = self.att4(e3, d4)
-        d4 = torch.cat([s3, d4], dim=1)
-        d4 = self.up_conv4(d4)
+            h = layer(h)
 
-        d3 = self.up3(d4)
-        s2 = self.att3(e2, d3)
-        d3 = torch.cat([s2, d3], dim=1)
-        d3 = self.up_conv3(d3)
-
-        d2 = self.up2(d3)
-        s1 = self.att2(e1, d2)
-        d2 = torch.cat([s1, d2], dim=1)
-        d2 = self.up_conv2(d2)
-
-        return self.out(d2)
+        return self.out(h)
 
 
 class Discriminator(nn.Module):
     def __init__(self, in_channels: int = 3):
         super().__init__()
 
+        # The discriminator has to distinguish between the real label and the
+        # prediction by the generator. So, it has two images as input, thus the
+        # channels are doubled.
+
+        # Input: 256 (pixels), 6 (channels)
         self.net = nn.Sequential(
-            ConvBlock(in_channels * 2, 64),
-            nn.MaxPool2d(2),
-            ConvBlock(64, 128),
-            nn.MaxPool2d(2),
-            ConvBlock(128, 256),
-            nn.MaxPool2d(2),
-            ConvBlock(256, 512),
-            ConvBlock(512, 1),
+            Downsample(in_channels * 2, 64, batchnorm=False),  # 128, 64
+            Downsample(64, 128),   # 64, 128
+            Downsample(128, 256),  # 32, 256
+            nn.ZeroPad2d(1),       # 34, 256
+            Downsample(256, 512, stride=1, padding=0),  # 31, 512
+            nn.ZeroPad2d(1),  # 33, 512
+            nn.Conv2d(
+                512,
+                1,
+                kernel_size=4,
+                stride=1,
+                padding=0,
+                bias=False
+            ),  # 30, 1
         )
 
         self.net.apply(self.init_weights)
@@ -240,44 +287,75 @@ class Discriminator(nn.Module):
         return self.net(xy_concat)
 
 
-class ConvBlock(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int):
+class Downsample(nn.Module):
+    """Convolution-BatchNorm-ReLU encoder layer."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        size: int = 4,
+        stride: int = 2,
+        padding: int = 1,
+        batchnorm: bool = True,
+    ):
         super().__init__()
 
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(),
+        self.down = nn.Sequential(
+            nn.Conv2d(
+                in_channels,
+                out_channels,
+                kernel_size=size,
+                stride=stride,
+                padding=padding,
+                bias=False,
+            ),
+            nn.BatchNorm2d(out_channels) if batchnorm else nn.Identity(),
+            nn.LeakyReLU(0.2),
         )
 
-        self.conv.apply(self.init_weights)
+        self.down.apply(self.init_weights)
 
     def init_weights(self, m: nn.Module):
         if isinstance(m, nn.Conv2d):
             nn.init.normal_(m.weight, 0., 0.02)
 
     def forward(self, x):
-        return self.conv(x)
+        return self.down(x)
 
 
-class UpConv(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int):
+class Upsample(nn.Module):
+    """Convolution-BatchNorm-ReLU decoder layer with optional dropout."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        size: int = 4,
+        stride: int = 2,
+        padding: int = 1,
+        dropout: float = 0.5,
+    ):
         super().__init__()
 
         self.up = nn.Sequential(
-            nn.Upsample(scale_factor=2),
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.ConvTranspose2d(
+                in_channels,
+                out_channels,
+                kernel_size=size,
+                stride=stride,
+                padding=padding,
+                bias=False,
+            ),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
+            nn.Dropout(dropout) if dropout != 0 else nn.Identity(),
+            nn.ReLU(),
         )
 
         self.up.apply(self.init_weights)
 
     def init_weights(self, m: nn.Module):
-        if isinstance(m, nn.Conv2d):
+        if isinstance(m, nn.ConvTranspose2d):
             nn.init.normal_(m.weight, 0., 0.02)
 
     def forward(self, x):

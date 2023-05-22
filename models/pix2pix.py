@@ -12,6 +12,18 @@ import pytorch_lightning as pl
 
 
 class Pix2Pix(pl.LightningModule):
+    """Implementation of the Pix2Pix image-to-image translation GAN.
+
+    :param in_channels: Channels of input images.
+    :param out_channels: Channels of output images.
+    :param channel_mults: Channel multiples that define the depth and width of
+        the U-net.
+    :param dropout: Dropout percentage. Only used in the layers with maximum
+        channel multiplication.
+    :param l1_lambda: Weight given to the L1 loss over the discriminator loss.
+
+    """
+
     def __init__(
         self,
         in_channels: int = 3,
@@ -36,6 +48,12 @@ class Pix2Pix(pl.LightningModule):
         self.l1_lambda = l1_lambda
 
     def forward(self, x):
+        """
+        :param x: [N x in_channels x H x W]
+        :returns: [N x out_channels x H x W]
+
+        """
+
         return self.generator(x)
 
     def generator_loss(
@@ -273,6 +291,13 @@ class Discriminator(nn.Module):
             nn.init.normal_(m.weight, 0., 0.02)
 
     def forward(self, x, y):
+        """
+        :param x: [N x in_channels x H x W]
+        :param y: [N x in_channels x H x W]
+        :returns: [1 x OUT x OUT]
+
+        """
+
         xy_concat = torch.cat((x, y), dim=1)
         return self.net(xy_concat)
 
@@ -311,6 +336,12 @@ class Downsample(nn.Module):
             nn.init.normal_(m.weight, 0., 0.02)
 
     def forward(self, x):
+        """
+        :param x: [N x in_channels x H x W]
+        :returns: [N x out_channels x H / 2 x W / 2]
+
+        """
+
         return self.down(x)
 
 
@@ -349,4 +380,10 @@ class Upsample(nn.Module):
             nn.init.normal_(m.weight, 0., 0.02)
 
     def forward(self, x):
+        """
+        :param x: [N x in_channels x H x W]
+        :returns: [N x out_channels x H * 2 x W * 2]
+
+        """
+
         return self.up(x)

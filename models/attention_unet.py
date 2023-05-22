@@ -1,6 +1,3 @@
-"""Implementation of image-to-image translation models from pix2pix
-(Isola et al., 2018)."""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -12,6 +9,19 @@ import pytorch_lightning as pl
 
 
 class AttentionUNetGAN(pl.LightningModule):
+    """The same as the Pix2Pix model, but with attention in the
+    skip-connections as in the Attention U-net model.
+
+    :param in_channels: Channels of input images.
+    :param out_channels: Channels of output images.
+    :param channel_mults: Channel multiples that define the depth and width of
+        the U-net.
+    :param dropout: Dropout percentage. Only used in the layers with maximum
+        channel multiplication.
+    :param l1_lambda: Weight given to the L1 loss over the discriminator loss.
+
+    """
+
     def __init__(
         self,
         in_channels: int,
@@ -36,6 +46,12 @@ class AttentionUNetGAN(pl.LightningModule):
         self.l1_lambda = l1_lambda
 
     def forward(self, x):
+        """
+        :param x: [N x in_channels x H x W]
+        :returns: [N x out_channels x H x W]
+
+        """
+
         return self.generator(x)
 
     def generator_loss(
@@ -160,10 +176,7 @@ class AttentionUNetGAN(pl.LightningModule):
 
 
 class AttentionUNet(nn.Module):
-    """
-    U-net with attention skip-connections.
-
-    """
+    """U-net with attention skip-connections."""
 
     def __init__(
         self,
@@ -251,6 +264,8 @@ class AttentionUNet(nn.Module):
 
 
 class Discriminator(nn.Module):
+    """The same discriminator as in the Pix2Pix GAN."""
+
     def __init__(self, in_channels: int = 3):
         super().__init__()
 
@@ -283,6 +298,13 @@ class Discriminator(nn.Module):
             nn.init.normal_(m.weight, 0., 0.02)
 
     def forward(self, x, y):
+        """
+        :param x: [N x in_channels x H x W]
+        :param y: [N x in_channels x H x W]
+        :returns: [OUT x 1]
+
+        """
+
         xy_concat = torch.cat((x, y), dim=1)
         return self.net(xy_concat)
 
@@ -321,6 +343,12 @@ class Downsample(nn.Module):
             nn.init.normal_(m.weight, 0., 0.02)
 
     def forward(self, x):
+        """
+        :param x: [N x in_channels x H x W]
+        :returns: [N x out_channels x H / 2 x W / 2]
+
+        """
+
         return self.down(x)
 
 
@@ -359,6 +387,12 @@ class Upsample(nn.Module):
             nn.init.normal_(m.weight, 0., 0.02)
 
     def forward(self, x):
+        """
+        :param x: [N x in_channels x H x W]
+        :returns: [N x out_channels x H * 2 x W * 2]
+
+        """
+
         return self.up(x)
 
 
@@ -396,6 +430,13 @@ class AttentionBlock(nn.Module):
             nn.init.normal_(m.weight, 0., 0.02)
 
     def forward(self, x, signal):
+        """
+        :param x: [N x input_channels x H x W]
+        :param signal: [N x signal_channels x H x W]
+        :returns: [N x input_channels x H x W]
+
+        """
+
         h_input = self.input_gate(x)
         h_signal = self.signal_gate(signal)
         h = F.relu(h_signal + h_input)

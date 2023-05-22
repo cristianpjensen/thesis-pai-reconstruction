@@ -8,9 +8,7 @@ import torchvision.transforms as transforms
 import pytorch_lightning as pl
 from models.pix2pix import Pix2Pix
 from models.palette import Palette
-from models.transgan import TransGAN
-from models.resnet import ResNetGAN
-from models.attention_unet import AttentionUNet
+from models.attention_unet import AttentionUNetGAN
 from reporting.depth_ssim import depth_ssim
 from dataset import ImageDataModule
 from argparse import ArgumentParser
@@ -36,16 +34,8 @@ def main(hparams):
             model = Palette.load_from_checkpoint(hparams.checkpoint)
             model.freeze()
 
-        case "transgan":
-            model = TransGAN.load_from_checkpoint(hparams.checkpoint)
-            model.freeze()
-
-        case "resnet":
-            model = ResNetGAN.load_from_checkpoint(hparams.checkpoint)
-            model.freeze()
-
         case "attention-unet":
-            model = AttentionUNet.load_from_checkpoint(hparams.checkpoint)
+            model = AttentionUNetGAN.load_from_checkpoint(hparams.checkpoint)
             model.freeze()
 
     if model is None:
@@ -55,6 +45,8 @@ def main(hparams):
         hparams.input_dir,
         hparams.target_dir,
         batch_size=hparams.batch_size,
+        normalize=hparams.model == "palette",
+        grayvalues=model.in_channels == 1,
     )
     data_module.setup("predict")
 
@@ -65,7 +57,7 @@ def main(hparams):
     targets = [batch[1] for batch in data_module.predict_dataloader()]
     targets = torch.cat(targets, axis=0).cpu()
 
-    preds = model(inputs)
+    preds = model(inputs) if model != "palette" else model(inputs, denormalize=True)
     preds = torch.clamp(preds, 0, 1).cpu()
 
     print("SSIM:", ssim(preds, targets, data_range=1.0).tolist())

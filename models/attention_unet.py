@@ -35,6 +35,9 @@ class AttentionUNetGAN(pl.LightningModule):
         self.example_input_array = torch.Tensor(32, in_channels, 256, 256)
         self.automatic_optimization = False
 
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+
         self.generator = AttentionUNet(
             in_channels,
             out_channels,

@@ -46,6 +46,9 @@ class Palette(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+
         self.unet = UNet(
             in_channel=in_channels * 2,
             out_channel=out_channels,
@@ -65,7 +68,7 @@ class Palette(pl.LightningModule):
         self.denormalize = transforms.Lambda(lambda x: (x + 1) / 2)
         self.to_int = transforms.ConvertImageDtype(torch.uint8)
 
-    def forward(self, x, output_video=False):
+    def forward(self, x, output_video=False, denormalize=False):
         batch_size = x.shape[0]
 
         y_t = torch.randn_like(x)
@@ -79,6 +82,9 @@ class Palette(pl.LightningModule):
                     [video_array, torch.unsqueeze(y_t, dim=1)],
                     dim=1,
                 )
+
+        if denormalize:
+            y_t = self.denormalize(y_t)
 
         if output_video:
             rgb_video_array = torch.cat(

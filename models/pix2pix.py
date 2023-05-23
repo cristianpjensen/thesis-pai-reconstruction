@@ -216,7 +216,7 @@ class UNet(nn.Module):
                 Upsample(
                     in_channels,
                     channels,
-                    dropout=dropout if mult == max(channel_mults) else 0,
+                    dropout=dropout if index < 3 else 0,
                 )
             )
 
@@ -236,6 +236,12 @@ class UNet(nn.Module):
 
         self.ups = nn.ModuleList(ups)
         self.out = nn.Tanh()
+
+        self.ups.apply(self.init_weights)
+
+    def init_weights(self, m: nn.Module):
+        if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+            nn.init.normal_(m.weight, 0., 0.02)
 
     def forward(self, x):
         """
@@ -374,7 +380,7 @@ class Upsample(nn.Module):
                 bias=False,
             ),
             nn.BatchNorm2d(out_channels),
-            nn.Dropout(dropout) if dropout != 0 else nn.Identity(),
+            nn.Dropout(dropout) if dropout > 0 else nn.Identity(),
             nn.ReLU(),
         )
 

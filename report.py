@@ -50,7 +50,8 @@ def main(hparams):
     inputs = torch.cat(inputs, axis=0).to(model.device)
 
     targets = [batch[1] for batch in data_module.predict_dataloader()]
-    targets = torch.cat(targets, axis=0).cpu()
+    targets = torch.cat(targets, axis=0)
+    targets = denormalize(targets).cpu()
 
     preds = model(inputs)
     preds = denormalize(preds).cpu()

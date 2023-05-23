@@ -6,6 +6,7 @@ from torchmetrics.functional import (
     structural_similarity_index_measure as ssim,
 )
 import pytorch_lightning as pl
+from .utils import denormalize
 
 
 class AttentionUNetGAN(pl.LightningModule):
@@ -140,6 +141,7 @@ class AttentionUNetGAN(pl.LightningModule):
         target_label = self.discriminator(input, target)
         pred_label = self.discriminator(input, pred)
         d_loss = self.discriminator_loss(pred_label, target_label)
+
         self.log("d_loss", d_loss, prog_bar=True)
 
         self.discriminator.zero_grad(set_to_none=True)
@@ -155,8 +157,9 @@ class AttentionUNetGAN(pl.LightningModule):
         pred_label = self.discriminator(input, pred)
         g_loss = self.generator_loss(pred, pred_label, target)
 
-        g_psnr = psnr(pred, target, data_range=1.0)
-        g_ssim = ssim(pred, target, data_range=1.0)
+        g_psnr = psnr(denormalize(pred), denormalize(target), data_range=1.0)
+        g_ssim = ssim(denormalize(pred), denormalize(target), data_range=1.0)
+
         self.log("g_loss", g_loss, prog_bar=True)
         self.log("train_ssim", g_ssim, prog_bar=True)
         self.log("train_psnr", g_psnr, prog_bar=True)
@@ -171,8 +174,8 @@ class AttentionUNetGAN(pl.LightningModule):
         input, target = batch
         pred = self.forward(input)
 
-        g_psnr = psnr(pred, target, data_range=1.0)
-        g_ssim = ssim(pred, target, data_range=1.0)
+        g_psnr = psnr(denormalize(pred), denormalize(target), data_range=1.0)
+        g_ssim = ssim(denormalize(pred), denormalize(target), data_range=1.0)
 
         self.log("val_ssim", g_ssim, prog_bar=True)
         self.log("val_psnr", g_psnr, prog_bar=True)

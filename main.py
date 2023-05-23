@@ -59,8 +59,8 @@ def main(hparams):
         hparams.target_dir,
         batch_size=hparams.batch_size,
         val_size=hparams.val_size,
-        normalize=hparams.model == "palette",
         grayvalues=hparams.grayvalues,
+        normalize=True,
     )
 
     trainer = pl.Trainer(

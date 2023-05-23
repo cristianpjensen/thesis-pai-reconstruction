@@ -66,27 +66,26 @@ class Palette(pl.LightningModule):
         self.diffusion = DiffusionModel(1e-6, 0.01, 2000, device=self.device)
         self.diffusion_inf = DiffusionModel(1e-4, 0.09, 1000, device=self.device)
 
-    def forward(self, x, output_video=False):
+    def forward(self, x, output_process=False):
         batch_size = x.shape[0]
 
         y_t = torch.randn_like(x)
-        video_array = torch.unsqueeze(y_t, dim=1)
+        process_array = torch.unsqueeze(y_t, dim=1)
         for i in tqdm(reversed(range(self.diffusion_inf.timesteps))):
             t = torch.full((batch_size,), i, device=x.device)
             y_t = self.diffusion_inf.backward(x, y_t, t, self.unet)
 
-            if output_video:
-                video_array = torch.cat(
-                    [video_array, torch.unsqueeze(y_t, dim=1)],
+            if (
+                output_process
+                and (i + 1) % (self.diffusion_inf.timesteps / 8) == 0
+            ):
+                process_array = torch.cat(
+                    [process_array, torch.unsqueeze(y_t, dim=1)],
                     dim=1,
                 )
 
-        if output_video:
-            rgb_video_array = torch.cat(
-                [video_array, video_array, video_array],
-                dim=2,
-            )
-            return y_t, rgb_video_array
+        if output_process:
+            return y_t, process_array
 
         return y_t
 
@@ -105,24 +104,6 @@ class Palette(pl.LightningModule):
         """
 
         return F.mse_loss(pred, target)
-
-    def get_beta_schedule(
-        self,
-        steps: int = 2000,
-        start: float = 1e-6,
-        end: float = 1e-2,
-        warmup_frac: float = 0.5,
-    ):
-        betas = end * torch.ones(steps, dtype=torch.float)
-        warmup_steps = int(steps * warmup_frac)
-        betas[:warmup_steps] = torch.linspace(
-            start,
-            end,
-            warmup_steps,
-            dtype=torch.float,
-        )
-
-        return betas
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.unet.parameters(), lr=1e-4)
@@ -166,25 +147,42 @@ class Palette(pl.LightningModule):
         x, y_0 = batch
         batch_size = x.shape[0]
 
-        y_pred, video_array = self.forward(x, output_video=True)
+        y_pred, process_array = self.forward(x, output_process=True)
 
-        # Output video and model outputs
-        for ind, video in enumerate(video_array):
-            video = to_int(denormalize(video))
-            video = video.permute(0, 2, 3, 1).cpu()
+        # Write diffusion processes of the model.
+        for ind, process in enumerate(process_array):
+            process_images = process.chunk(9)
+            process = torch.cat([
+                torch.cat([
+                    process_images[0].squeeze(0),
+                    process_images[1].squeeze(0),
+                    process_images[2].squeeze(0),
+                ], dim=2),
+                torch.cat([
+                    process_images[3].squeeze(0),
+                    process_images[4].squeeze(0),
+                    process_images[5].squeeze(0),
+                ], dim=2),
+                torch.cat([
+                    process_images[6].squeeze(0),
+                    process_images[7].squeeze(0),
+                    process_images[8].squeeze(0),
+                ], dim=2),
+            ], dim=1)
 
             index = batch_size * batch_idx + ind
-            write_video(
+
+            write_png(
+                to_int(denormalize(process)).cpu(),
                 os.path.join(
                     self.logger.log_dir,
                     str(self.current_epoch),
-                    "val_diffusion",
-                    f"diffusion_{index}.mp4",
+                    f"process_{index}.png",
                 ),
-                video,
-                fps=self.diffusion_inf.timesteps / 10,
+                compression_level=0,
             )
 
+        # Write outputs of the model.
         for ind, y_tx in enumerate(y_pred):
             index = batch_size * batch_idx + ind
             write_png(

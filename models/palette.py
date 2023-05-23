@@ -131,17 +131,9 @@ class Palette(pl.LightningModule):
     def on_validation_start(self):
         # Make dirs to save log video and output to
         epoch_dir = os.path.join(self.logger.log_dir, str(self.current_epoch))
-        val_diffusion_dir = os.path.join(epoch_dir, "val_diffusion")
-        val_output_dir = os.path.join(epoch_dir, "val_output")
 
         if not os.path.exists(epoch_dir):
             os.mkdir(epoch_dir)
-
-        if not os.path.exists(val_diffusion_dir):
-            os.mkdir(val_diffusion_dir)
-
-        if not os.path.exists(val_output_dir):
-            os.mkdir(val_output_dir)
 
     def validation_step(self, batch, batch_idx):
         x, y_0 = batch
@@ -190,7 +182,6 @@ class Palette(pl.LightningModule):
                 os.path.join(
                     self.logger.log_dir,
                     str(self.current_epoch),
-                    "val_output",
                     f"output_{index}.png",
                 ),
                 compression_level=0,

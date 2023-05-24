@@ -76,7 +76,7 @@ class Palette(pl.LightningModule):
 
             if (
                 output_process
-                and i % (self.diffusion.timesteps / 8) == 0
+                and i % (self.diffusion.timesteps // 7) == 0
             ):
                 process_array = torch.cat(
                     [process_array, torch.unsqueeze(y_t, dim=1)],

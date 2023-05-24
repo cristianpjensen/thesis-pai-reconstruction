@@ -63,7 +63,7 @@ class Palette(pl.LightningModule):
         )
 
         # Training scheduler
-        self.diffusion = DiffusionModel(1e-4, 0.048, 500, device=self.device)
+        self.diffusion = DiffusionModel(1e-4, 0.09, 1000, device=self.device)
 
     def forward(self, x, output_process=False):
         batch_size = x.shape[0]

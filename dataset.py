@@ -15,7 +15,7 @@ class ImageDataModule(pl.LightningDataModule):
         batch_size: int = 1,
         val_size: float | int = 0.2,
         normalize: bool = False,
-        grayvalues: bool = False,
+        grayscale: bool = False,
     ):
         super().__init__()
         self.input_dir = input_dir
@@ -23,21 +23,22 @@ class ImageDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.val_size = val_size
         self.normalize = normalize
-        self.grayvalues = grayvalues
+        self.grayscale = grayscale
+
+        trans = [
+            transforms.Resize((256, 256), antialias=True),
+            transforms.ConvertImageDtype(torch.float32),
+        ]
 
         if normalize:
-            self.transform = transforms.Compose([
-                transforms.Resize((256, 256), antialias=True),
-                transforms.ConvertImageDtype(torch.float32),
-                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-                transforms.Grayscale(1 if grayvalues else 3),
-            ])
-        else:
-            self.transform = transforms.Compose([
-                transforms.Resize((256, 256), antialias=True),
-                transforms.ConvertImageDtype(torch.float32),
-                transforms.Grayscale(1 if grayvalues else 3),
-            ])
+            trans.append(
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            )
+
+        if grayscale:
+            trans.append(transforms.Grayscale(1))
+
+        self.transform = transforms.Compose(trans)
 
     def _get_pairs(self, input_dir, target_dir):
         input_imgs = get_image_filenames(input_dir)

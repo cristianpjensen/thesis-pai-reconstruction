@@ -63,21 +63,20 @@ class Palette(pl.LightningModule):
         )
 
         # Training scheduler
-        self.diffusion = DiffusionModel(1e-6, 0.01, 2000, device=self.device)
-        self.diffusion_inf = DiffusionModel(1e-4, 0.09, 1000, device=self.device)
+        self.diffusion = DiffusionModel(1e-4, 0.048, 500, device=self.device)
 
     def forward(self, x, output_process=False):
         batch_size = x.shape[0]
 
         y_t = torch.randn_like(x)
         process_array = torch.unsqueeze(y_t, dim=1)
-        for i in tqdm(reversed(range(self.diffusion_inf.timesteps))):
+        for i in tqdm(reversed(range(self.diffusion.timesteps))):
             t = torch.full((batch_size,), i, device=x.device)
-            y_t = self.diffusion_inf.backward(x, y_t, t, self.unet)
+            y_t = self.diffusion.backward(x, y_t, t, self.unet)
 
             if (
                 output_process
-                and (i + 1) % (self.diffusion_inf.timesteps / 8) == 0
+                and i % (self.diffusion.timesteps / 8) == 0
             ):
                 process_array = torch.cat(
                     [process_array, torch.unsqueeze(y_t, dim=1)],
@@ -205,9 +204,8 @@ class DiffusionModel(nn.Module):
 
         self.timesteps = timesteps
         betas = torch.linspace(start, end, timesteps).to(device)
-
-        self.register_buffer("alphas", 1 - betas)
-        self.register_buffer("gammas", torch.cumprod(self.alphas, axis=0))
+        self.alphas = 1 - betas
+        self.gammas = torch.cumprod(self.alphas, axis=0)
 
     def forward(self, y_0, t):
         """
@@ -248,7 +246,7 @@ class DiffusionModel(nn.Module):
 
         noise = torch.randn_like(y_t) * (t > 0).view(-1, 1, 1, 1)
 
-        return torch.clamp(mean + sqrt_variance * noise, -1, 1)
+        return mean + sqrt_variance * noise
 
     def get_value(self, values, t):
         """

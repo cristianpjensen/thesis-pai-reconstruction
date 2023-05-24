@@ -23,8 +23,8 @@ def main(hparams):
     match hparams.model:
         case "pix2pix":
             model = Pix2Pix(
-                in_channels=1 if hparams.grayvalues else 3,
-                out_channels=1 if hparams.grayvalues else 3,
+                in_channels=1 if hparams.grayscale else 3,
+                out_channels=1 if hparams.grayscale else 3,
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
                 l1_lambda=hparams.l1_lambda,
@@ -32,8 +32,8 @@ def main(hparams):
 
         case "attention_unet":
             model = AttentionUNetGAN(
-                in_channels=1 if hparams.grayvalues else 3,
-                out_channels=1 if hparams.grayvalues else 3,
+                in_channels=1 if hparams.grayscale else 3,
+                out_channels=1 if hparams.grayscale else 3,
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
                 l1_lambda=hparams.l1_lambda,
@@ -41,8 +41,8 @@ def main(hparams):
 
         case "palette":
             model = Palette(
-                in_channels=1 if hparams.grayvalues else 3,
-                out_channels=1 if hparams.grayvalues else 3,
+                in_channels=1 if hparams.grayscale else 3,
+                out_channels=1 if hparams.grayscale else 3,
                 inner_channels=64,
                 channel_mults=channel_mults,
                 attention_res=att_mults,
@@ -59,7 +59,7 @@ def main(hparams):
         hparams.target_dir,
         batch_size=hparams.batch_size,
         val_size=hparams.val_size,
-        grayvalues=hparams.grayvalues,
+        grayscale=hparams.grayscale,
         normalize=True,
     )
 
@@ -108,10 +108,10 @@ if __name__ == "__main__":
         help="Floating-point precision"
     )
     parser.add_argument(
-        "--grayvalues",
+        "--grayscale",
         default=False,
         action=argparse.BooleanOptionalAction,
-        help="Whether to turn the images into grayvalue images."
+        help="Whether to turn the images into grayscaled images."
     )
     parser.add_argument(
         "--channel-mults",

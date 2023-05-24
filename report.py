@@ -40,7 +40,7 @@ def main(hparams):
         hparams.input_dir,
         hparams.target_dir,
         batch_size=hparams.batch_size,
-        grayvalues=model.in_channels == 1,
+        grayscale=model.in_channels == 1,
         normalize=True,
     )
     data_module.setup("predict")

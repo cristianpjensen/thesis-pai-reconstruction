@@ -13,9 +13,11 @@ from .nn import (
     gamma_embedding
 )
 
+
 class SiLU(nn.Module):
     def forward(self, x):
         return x * torch.sigmoid(x)
+
 
 class EmbedBlock(nn.Module):
     """
@@ -27,6 +29,7 @@ class EmbedBlock(nn.Module):
         """
         Apply the module to `x` given `emb` embeddings.
         """
+
 
 class EmbedSequential(nn.Sequential, EmbedBlock):
     """
@@ -42,6 +45,7 @@ class EmbedSequential(nn.Sequential, EmbedBlock):
                 x = layer(x)
         return x
 
+
 class Upsample(nn.Module):
     """
     An upsampling layer with an optional convolution.
@@ -56,7 +60,12 @@ class Upsample(nn.Module):
         self.out_channel = out_channel or channels
         self.use_conv = use_conv
         if use_conv:
-            self.conv = nn.Conv2d(self.channels, self.out_channel, 3, padding=1)
+            self.conv = nn.Conv2d(
+                self.channels,
+                self.out_channel,
+                kernel_size=3,
+                padding=1,
+            )
 
     def forward(self, x):
         assert x.shape[1] == self.channels
@@ -64,6 +73,7 @@ class Upsample(nn.Module):
         if self.use_conv:
             x = self.conv(x)
         return x
+
 
 class Downsample(nn.Module):
     """
@@ -202,6 +212,7 @@ class ResBlock(EmbedBlock):
             h = self.out_layers(h)
         return self.skip_connection(x) + h
 
+
 class AttentionBlock(nn.Module):
     """
     An attention block that allows spatial positions to attend to each other.
@@ -252,7 +263,9 @@ class AttentionBlock(nn.Module):
 
 class QKVAttentionLegacy(nn.Module):
     """
-    A module which performs QKV attention. Matches legacy QKVAttention + input/ouput heads shaping
+    A module which performs QKV attention. Matches legacy QKVAttention +
+    input/ouput heads shaping
+
     """
 
     def __init__(self, n_heads):
@@ -265,10 +278,15 @@ class QKVAttentionLegacy(nn.Module):
         :param qkv: an [N x (H * 3 * C) x T] tensor of Qs, Ks, and Vs.
         :return: an [N x (H * C) x T] tensor after attention.
         """
+
         bs, width, length = qkv.shape
         assert width % (3 * self.n_heads) == 0
         ch = width // (3 * self.n_heads)
-        q, k, v = qkv.reshape(bs * self.n_heads, ch * 3, length).split(ch, dim=1)
+        q, k, v = qkv.reshape(
+            bs * self.n_heads,
+            ch * 3,
+            length
+        ).split(ch, dim=1)
         scale = 1 / math.sqrt(math.sqrt(ch))
         weight = torch.einsum(
             "bct,bcs->bts", q * scale, k * scale
@@ -308,17 +326,23 @@ class QKVAttention(nn.Module):
             (k * scale).view(bs * self.n_heads, ch, length),
         )  # More stable with f16 than dividing afterwards
         weight = torch.softmax(weight.float(), dim=-1).type(weight.dtype)
-        a = torch.einsum("bts,bcs->bct", weight, v.reshape(bs * self.n_heads, ch, length))
+        a = torch.einsum(
+            "bts,bcs->bct",
+            weight,
+            v.reshape(bs * self.n_heads, ch, length),
+        )
         return a.reshape(bs, -1, length)
 
     @staticmethod
     def count_flops(model, _x, y):
         return count_flops_attn(model, _x, y)
 
+
 class UNet(nn.Module):
     """
     The full UNet model with attention and embedding.
-    :param in_channel: channels in the input Tensor, for image colorization : Y_channels + X_channels .
+    :param in_channel: channels in the input Tensor, for image colorization:
+        Y_channels + X_channels.
     :param inner_channel: base channel count for the model.
     :param out_channel: channels in the output Tensor.
     :param res_blocks: number of residual blocks per downsample.
@@ -338,8 +362,8 @@ class UNet(nn.Module):
                                of heads for upsampling. Deprecated.
     :param use_scale_shift_norm: use a FiLM-like conditioning mechanism.
     :param resblock_updown: use residual blocks for up/downsampling.
-    :param use_new_attention_order: use a different attention pattern for potentially
-                                    increased efficiency.
+    :param use_new_attention_order: use a different attention pattern for
+        potentially increased efficiency.
     """
 
     def __init__(
@@ -530,6 +554,7 @@ class UNet(nn.Module):
         :param gammas: a 1-D batch of gammas.
         :return: an [N x C x ...] Tensor of outputs.
         """
+
         hs = []
         gammas = gammas.view(-1, )
         emb = self.cond_embed(gamma_embedding(gammas, self.inner_channel))

@@ -204,8 +204,9 @@ class DiffusionModel(nn.Module):
 
         self.timesteps = timesteps
         betas = torch.linspace(start, end, timesteps).to(device)
-        self.alphas = 1 - betas
-        self.gammas = torch.cumprod(self.alphas, axis=0)
+
+        self.register_buffer("alphas", 1 - betas)
+        self.register_buffer("gammas", torch.cumprod(self.alphas, axis=0))
 
     def forward(self, y_0, t):
         """

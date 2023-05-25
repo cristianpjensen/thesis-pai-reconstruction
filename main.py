@@ -70,7 +70,7 @@ def main(hparams):
         check_val_every_n_epoch=hparams.val_epochs,
         logger=pl.loggers.CSVLogger("logs", name=hparams.name),
         precision=hparams.precision,
-        callbacks=[EMACallback(0.9999)],
+        callbacks=[EMACallback(0.9999)] if hparams.ema else [],
     )
     trainer.fit(model, data_module)
 
@@ -112,6 +112,12 @@ if __name__ == "__main__":
         default=False,
         action=argparse.BooleanOptionalAction,
         help="Whether to turn the images into grayscaled images."
+    )
+    parser.add_argument(
+        "--ema",
+        default=False,
+        action=argparse.BooleanOptionalAction,
+        help="Whether to use EMA weight updating."
     )
     parser.add_argument(
         "--channel-mults",

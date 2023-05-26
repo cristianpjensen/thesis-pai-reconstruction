@@ -4,13 +4,8 @@ Various utilities for neural networks.
 
 import math
 import numpy as np
-import torch 
+import torch
 import torch.nn as nn
-
-
-class GroupNorm32(nn.GroupNorm):
-    def forward(self, x):
-        return super().forward(x.float()).type(x.dtype)
 
 
 def zero_module(module):
@@ -45,8 +40,7 @@ def normalization(channels):
     :param channels: number of input channels.
     :return: an nn.Module for normalization.
     """
-    return GroupNorm32(32, channels)
-
+    return nn.BatchNorm2d(channels)
 
 
 def checkpoint(func, inputs, params, flag):

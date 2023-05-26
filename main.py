@@ -66,11 +66,13 @@ def main(hparams):
     trainer = pl.Trainer(
         deterministic=True,
         max_epochs=hparams.epochs,
+        max_steps=hparams.steps,
         log_every_n_steps=10,
         check_val_every_n_epoch=hparams.val_epochs,
         logger=pl.loggers.CSVLogger("logs", name=hparams.name),
         precision=hparams.precision,
         callbacks=[EMACallback(0.9999)] if hparams.ema else [],
+        benchmark=True,
     )
     trainer.fit(model, data_module)
 
@@ -92,6 +94,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("-l1", "--l1-lambda", default=50, type=int)
     parser.add_argument("-e", "--epochs", default=200, type=int)
+    parser.add_argument("-s", "--steps", default=-1, type=int)
     parser.add_argument("-bs", "--batch-size", default=2, type=int)
     parser.add_argument("-vs", "--val-size", default=0.3, type=float)
     parser.add_argument(

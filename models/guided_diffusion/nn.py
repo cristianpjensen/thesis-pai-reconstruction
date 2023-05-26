@@ -8,6 +8,21 @@ import torch
 import torch.nn as nn
 
 
+class GroupNorm(nn.GroupNorm):
+    def forward(self, x):
+        return super().forward(x.float()).type(x.dtype)
+
+
+class BatchNorm2d(nn.BatchNorm2d):
+    def forward(self, x):
+        return super().forward(x.float()).type(x.dtype)
+
+
+class BatchNorm1d(nn.BatchNorm1d):
+    def forward(self, x):
+        return super().forward(x.float()).type(x.dtype)
+
+
 def zero_module(module):
     """
     Zero out the parameters of a module and return it.
@@ -33,14 +48,24 @@ def mean_flat(tensor):
     return tensor.mean(dim=list(range(1, len(tensor.shape))))
 
 
-def normalization(channels):
+def normalization1d(channels):
     """
     Make a standard normalization layer.
 
     :param channels: number of input channels.
     :return: an nn.Module for normalization.
     """
-    return nn.BatchNorm2d(channels)
+    return BatchNorm1d(channels)
+
+
+def normalization2d(channels):
+    """
+    Make a standard normalization layer.
+
+    :param channels: number of input channels.
+    :return: an nn.Module for normalization.
+    """
+    return BatchNorm2d(channels)
 
 
 def checkpoint(func, inputs, params, flag):

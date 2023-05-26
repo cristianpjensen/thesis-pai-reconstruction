@@ -8,7 +8,8 @@ import torch.nn.functional as F
 from .nn import (
     checkpoint,
     zero_module,
-    normalization,
+    normalization1d,
+    normalization2d,
     count_flops_attn,
     gamma_embedding
 )
@@ -138,7 +139,7 @@ class ResBlock(EmbedBlock):
         self.use_scale_shift_norm = use_scale_shift_norm
 
         self.in_layers = nn.Sequential(
-            normalization(channels),
+            normalization2d(channels),
             SiLU(),
             nn.Conv2d(channels, self.out_channel, 3, padding=1),
         )
@@ -162,7 +163,7 @@ class ResBlock(EmbedBlock):
             ),
         )
         self.out_layers = nn.Sequential(
-            normalization(self.out_channel),
+            normalization2d(self.out_channel),
             SiLU(),
             nn.Dropout(p=dropout),
             zero_module(
@@ -238,7 +239,7 @@ class AttentionBlock(nn.Module):
             ), f"q,k,v channels {channels} is not divisible by num_head_channels {num_head_channels}"
             self.num_heads = channels // num_head_channels
         self.use_checkpoint = use_checkpoint
-        self.norm = normalization(channels)
+        self.norm = normalization1d(channels)
         self.qkv = nn.Conv1d(channels, channels * 3, 1)
         if use_new_attention_order:
             # split qkv before split heads
@@ -254,9 +255,8 @@ class AttentionBlock(nn.Module):
 
     def _forward(self, x):
         b, c, *spatial = x.shape
-        x = self.norm(x)
         x = x.reshape(b, c, -1)
-        qkv = self.qkv(x)
+        qkv = self.qkv(self.norm(x))
         h = self.attention(qkv)
         h = self.proj_out(h)
         return (x + h).reshape(b, c, *spatial)
@@ -542,7 +542,7 @@ class UNet(nn.Module):
                 self._feature_size += ch
 
         self.out = nn.Sequential(
-            normalization(ch),
+            normalization2d(ch),
             SiLU(),
             zero_module(nn.Conv2d(input_ch, out_channel, 3, padding=1)),
         )

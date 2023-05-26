@@ -63,20 +63,21 @@ class Palette(pl.LightningModule):
         )
 
         # Training scheduler
-        self.diffusion = DiffusionModel(1e-4, 0.09, 1000, device=self.device)
+        self.diffusion = DiffusionModel(1e-6, 0.01, 2000, device=self.device)
+        self.diffusion_inf = DiffusionModel(1e-4, 0.09, 1000, device=self.device)
 
     def forward(self, x, output_process=False):
         batch_size = x.shape[0]
 
         y_t = torch.randn_like(x)
         process_array = torch.unsqueeze(y_t, dim=1)
-        for i in tqdm(reversed(range(self.diffusion.timesteps))):
+        for i in tqdm(reversed(range(self.diffusion_inf.timesteps))):
             t = torch.full((batch_size,), i, device=x.device)
-            y_t = self.diffusion.backward(x, y_t, t, self.unet)
+            y_t = self.diffusion_inf.backward(x, y_t, t, self.unet)
 
             if (
                 output_process
-                and i % (self.diffusion.timesteps // 7) == 0
+                and i % (self.diffusion_inf.timesteps // 7) == 0
             ):
                 process_array = torch.cat(
                     [process_array, torch.unsqueeze(y_t, dim=1)],
@@ -102,10 +103,15 @@ class Palette(pl.LightningModule):
 
         """
 
-        return F.mse_loss(pred, target)
+        return F.l1_loss(pred, target)
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.unet.parameters(), lr=1e-4)
+        optimizer = torch.optim.Adam(self.unet.parameters(), lr=1e-4)
+        scheduler = torch.optim.lr_scheduler.LinearLR(
+            optimizer,
+            total_iters=10000,
+        )
+        return [optimizer], [scheduler]
 
     def training_step(self, batch, batch_idx):
         x, y_0 = batch
@@ -212,17 +218,19 @@ class DiffusionModel(nn.Module):
         """
         :param y_0: [N x C x H x W]
         :param y: [N]
-        :returns: [N x C x H x W], [N x C x H x W], [N]
+        :returns: y_noised [N x C x H x W], noise [N x C x H x W], gamma [N]
 
         """
 
         noise = torch.randn_like(y_0) * (t > 0).view(-1, 1, 1, 1)
-        gamma = self.get_value(self.gammas, t)
+        gamma_prev = self.get_value(self.gammas, t-1)
+        gamma_cur = self.get_value(self.gammas, t)
+        gamma = (gamma_cur-gamma_prev) * torch.rand_like(gamma_cur) + gamma_cur
 
         mean = torch.sqrt(gamma) * y_0
         variance = torch.sqrt(1 - gamma) * noise
 
-        return mean + variance, noise, gamma.view(-1)
+        return torch.clamp(mean + variance, -1, 1), noise, gamma.view(-1)
 
     def backward(self, x, y_t, t, noise_fn):
         """
@@ -247,7 +255,7 @@ class DiffusionModel(nn.Module):
 
         noise = torch.randn_like(y_t) * (t > 0).view(-1, 1, 1, 1)
 
-        return mean + sqrt_variance * noise
+        return torch.clamp(mean + sqrt_variance * noise, -1, 1)
 
     def get_value(self, values, t):
         """

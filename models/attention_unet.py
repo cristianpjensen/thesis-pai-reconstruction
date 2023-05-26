@@ -38,6 +38,7 @@ class AttentionUNetGAN(pl.LightningModule):
 
         self.in_channels = in_channels
         self.out_channels = out_channels
+        self.l1_lambda = l1_lambda
 
         self.generator = AttentionUNet(
             in_channels,
@@ -46,8 +47,6 @@ class AttentionUNetGAN(pl.LightningModule):
             dropout=dropout,
         )
         self.discriminator = Discriminator(in_channels)
-
-        self.l1_lambda = l1_lambda
 
     def forward(self, x):
         """
@@ -157,8 +156,8 @@ class AttentionUNetGAN(pl.LightningModule):
         pred_label = self.discriminator(input, pred)
         g_loss = self.generator_loss(pred, pred_label, target)
 
-        g_psnr = psnr(denormalize(pred), denormalize(target), data_range=1.0)
         g_ssim = ssim(denormalize(pred), denormalize(target), data_range=1.0)
+        g_psnr = psnr(denormalize(pred), denormalize(target), data_range=1.0)
 
         self.log("g_loss", g_loss, prog_bar=True)
         self.log("train_ssim", g_ssim, prog_bar=True)
@@ -174,8 +173,8 @@ class AttentionUNetGAN(pl.LightningModule):
         input, target = batch
         pred = self.forward(input)
 
-        g_psnr = psnr(denormalize(pred), denormalize(target), data_range=1.0)
         g_ssim = ssim(denormalize(pred), denormalize(target), data_range=1.0)
+        g_psnr = psnr(denormalize(pred), denormalize(target), data_range=1.0)
 
         self.log("val_ssim", g_ssim, prog_bar=True)
         self.log("val_psnr", g_psnr, prog_bar=True)
@@ -218,7 +217,7 @@ class AttentionUNet(nn.Module):
                 Upsample(
                     in_channels,
                     channels,
-                    dropout=dropout if mult == max(channel_mults) else 0,
+                    dropout=dropout if index < 3 else 0,
                 )
             )
 
@@ -382,7 +381,7 @@ class Upsample(nn.Module):
                 bias=False,
             ),
             nn.BatchNorm2d(out_channels),
-            nn.Dropout(dropout) if dropout != 0 else nn.Identity(),
+            nn.Dropout(dropout) if dropout > 0 else nn.Identity(),
             nn.ReLU(),
         )
 

@@ -225,7 +225,7 @@ class DiffusionModel(nn.Module):
         noise = torch.randn_like(y_0) * (t > 0).view(-1, 1, 1, 1)
         gamma_prev = self.get_value(self.gammas, t-1)
         gamma_cur = self.get_value(self.gammas, t)
-        gamma = (gamma_cur-gamma_prev) * torch.rand_like(gamma_cur) + gamma_cur
+        gamma = (gamma_cur-gamma_prev) * torch.rand_like(gamma_cur) + gamma_prev
 
         mean = torch.sqrt(gamma) * y_0
         variance = torch.sqrt(1 - gamma) * noise

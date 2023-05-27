@@ -262,7 +262,7 @@ class DiffusionModel(nn.Module):
             y_t -
             torch.sqrt(1 - gamma) * noise_pred
         )
-        y_0_hat = torch.clamp(y_0_hat)
+        y_0_hat = torch.clamp(y_0_hat, -1, 1)
 
         mean = (
             (torch.sqrt(gamma_prev) * (1 - alpha) / (1 - gamma)) * y_0_hat +

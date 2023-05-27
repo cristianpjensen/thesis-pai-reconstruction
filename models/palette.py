@@ -4,7 +4,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.io import write_video, write_png
+from torchvision.io import write_png
 from torchmetrics.functional import (
     peak_signal_noise_ratio as psnr,
     structural_similarity_index_measure as ssim,
@@ -80,7 +80,7 @@ class Palette(pl.LightningModule):
                 and i % (self.diffusion_inf.timesteps // 7) == 0
             ):
                 process_array = torch.cat(
-                    [process_array, torch.unsqueeze(y_t, dim=1)],
+                    [process_array, y_t.unsqueeze(1)],
                     dim=1,
                 )
 
@@ -135,7 +135,10 @@ class Palette(pl.LightningModule):
 
     def on_validation_start(self):
         # Make dirs to save log video and output to
-        epoch_dir = os.path.join(self.logger.log_dir, str(self.current_epoch))
+        epoch_dir = os.path.join(
+            self.logger.log_dir,
+            str(self.current_epoch + 1),
+        )
 
         if not os.path.exists(epoch_dir):
             os.mkdir(epoch_dir)
@@ -173,7 +176,7 @@ class Palette(pl.LightningModule):
                 to_int(denormalize(process)).cpu(),
                 os.path.join(
                     self.logger.log_dir,
-                    str(self.current_epoch),
+                    str(self.current_epoch + 1),
                     f"process_{index}.png",
                 ),
                 compression_level=0,
@@ -186,7 +189,7 @@ class Palette(pl.LightningModule):
                 to_int(denormalize(y_tx)).cpu(),
                 os.path.join(
                     self.logger.log_dir,
-                    str(self.current_epoch),
+                    str(self.current_epoch + 1),
                     f"output_{index}.png",
                 ),
                 compression_level=0,
@@ -213,6 +216,13 @@ class DiffusionModel(nn.Module):
 
         self.register_buffer("alphas", 1 - betas)
         self.register_buffer("gammas", torch.cumprod(self.alphas, axis=0))
+        self.register_buffer(
+            "gammas_prev",
+            torch.cat([
+                torch.ones((1,), device=self.gammas.device),
+                self.gammas[:-1],
+            ]),
+        )
 
     def forward(self, y_0, t):
         """
@@ -223,14 +233,14 @@ class DiffusionModel(nn.Module):
         """
 
         noise = torch.randn_like(y_0) * (t > 0).view(-1, 1, 1, 1)
-        gamma_prev = self.get_value(self.gammas, t-1)
+        gamma_prev = self.get_value(self.gammas_prev, t)
         gamma_cur = self.get_value(self.gammas, t)
         gamma = (gamma_cur-gamma_prev) * torch.rand_like(gamma_cur) + gamma_prev
 
         mean = torch.sqrt(gamma) * y_0
         variance = torch.sqrt(1 - gamma) * noise
 
-        return torch.clamp(mean + variance, -1, 1), noise, gamma.view(-1)
+        return mean + variance, noise, gamma.view(-1)
 
     def backward(self, x, y_t, t, noise_fn):
         """
@@ -245,17 +255,26 @@ class DiffusionModel(nn.Module):
 
         alpha = self.get_value(self.alphas, t)
         gamma = self.get_value(self.gammas, t)
+        gamma_prev = self.get_value(self.gammas_prev, t)
         noise_pred = noise_fn(x, y_t, gamma.view(-1))
 
-        mean = (1 / torch.sqrt(alpha)) * (
+        y_0_hat = (1 / torch.sqrt(gamma)) * (
             y_t -
-            ((1 - alpha) / torch.sqrt(1 - gamma)) * noise_pred
+            torch.sqrt(1 - gamma) * noise_pred
         )
-        sqrt_variance = torch.sqrt(1 - alpha)
+        y_0_hat = torch.clamp(y_0_hat)
 
-        noise = torch.randn_like(y_t) * (t > 0).view(-1, 1, 1, 1)
+        mean = (
+            (torch.sqrt(gamma_prev) * (1 - alpha) / (1 - gamma)) * y_0_hat +
+            (torch.sqrt(alpha) * (1 - gamma_prev) / (1 - gamma)) * y_t
+        )
+        variance = (1 - gamma_prev) * (1 - alpha) / (1 - gamma)
+        variance = torch.log(torch.clamp(variance, min=1e-20))
+        sqrt_variance = torch.exp(0.5 * variance)
 
-        return torch.clamp(mean + sqrt_variance * noise, -1, 1)
+        noise = torch.randn_like(y_t) * (t > 1).view(-1, 1, 1, 1)
+
+        return mean + sqrt_variance * noise
 
     def get_value(self, values, t):
         """

@@ -103,7 +103,7 @@ class Palette(pl.LightningModule):
 
         """
 
-        return F.l1_loss(pred, target)
+        return F.mse_loss(pred, target)
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.unet.parameters(), lr=1e-4)

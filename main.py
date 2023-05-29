@@ -59,7 +59,7 @@ def main(hparams):
                 channel_mults=channel_mults,
                 att_mults=att_mults,
                 dropout=hparams.dropout,
-                num_res_blocks=3,
+                num_res_blocks=2,
                 num_heads=4,
             )
 

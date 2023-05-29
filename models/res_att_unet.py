@@ -7,6 +7,7 @@ from torchmetrics.functional import (
 )
 import pytorch_lightning as pl
 import math
+from typing import Literal, Optional
 from .utils import denormalize
 
 
@@ -39,7 +40,7 @@ class ModernUnetGAN(pl.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters()
-        self.example_input_array = torch.Tensor(32, in_channels, 256, 256)
+        self.example_input_array = torch.Tensor(2, in_channels, 256, 256)
         self.automatic_optimization = False
 
         self.in_channels = in_channels
@@ -51,13 +52,12 @@ class ModernUnetGAN(pl.LightningModule):
             out_channels,
             num_res_blocks=num_res_blocks,
             channel_mults=channel_mults,
-            att_mults=att_mults,
+            attention_mults=att_mults,
             num_heads=num_heads,
             dropout=dropout,
         )
         self.discriminator = Discriminator(
             in_channels,
-            num_res_blocks=num_res_blocks,
             num_heads=num_heads,
         )
 
@@ -196,150 +196,175 @@ class ModernUnetGAN(pl.LightningModule):
 class UNet(nn.Module):
     def __init__(
         self,
-        in_channels: int = 3,
-        out_channels: int = 3,
-        num_res_blocks: int = 3,
-        channel_mults: tuple[int] = (1, 2, 4, 8,),
-        att_mults: tuple[int] = (8,),
+        in_channels: int,
+        out_channels: int,
+        num_res_blocks: int,
+        dropout: float = 0.0,
+        inner_channels: int = 64,
+        channel_mults: list[int] = [1, 2, 4, 8],
+        attention_mults: list[int] = [8],
         num_heads: int = 4,
-        dropout: float = 0.2,
     ):
         super().__init__()
 
-        downs = []
-        for index, mult in enumerate(channel_mults):
-            channels = mult * 64
+        downs = [nn.Conv2d(in_channels, 64, kernel_size=3, padding=1)]
+        in_channels = 64
+        input_block_channels = [64]
+        for level, mult in enumerate(channel_mults):
+            channels = mult * inner_channels
 
-            downs.append(
-                Downsample(
-                    in_channels,
-                    channels,
-                    num_res_blocks=num_res_blocks,
-                    dropout=0,
-                    use_attention=mult in att_mults,
-                    num_heads=num_heads,
+            for _ in range(num_res_blocks):
+                layers = [
+                    ResBlock(
+                        in_channels,
+                        channels,
+                        dropout=dropout,
+                    )
+                ]
+
+                if mult in attention_mults:
+                    layers.append(
+                        AttentionBlock(
+                            channels,
+                            num_heads=num_heads,
+                        )
+                    )
+
+                downs.append(nn.Sequential(*layers))
+                input_block_channels.append(channels)
+                in_channels = channels
+
+            if level != len(channel_mults) - 1:
+                downs.append(
+                    ResBlock(
+                        channels,
+                        channels,
+                        dropout=dropout,
+                        operation="down",
+                    )
                 )
-            )
 
-            in_channels = channels
+                input_block_channels.append(channels)
 
         self.downs = nn.ModuleList(downs)
 
-        ups = []
-        for index, mult in reversed(list(enumerate(channel_mults[:-1]))):
-            channels = mult * 64
-
-            ups.append(
-                Upsample(
-                    in_channels,
-                    channels,
-                    num_res_blocks=num_res_blocks,
-                    dropout=dropout if (
-                        index < 3 and
-                        mult == max(channel_mults)
-                    ) else 0,
-                    use_attention=mult in att_mults,
-                    num_heads=num_heads,
-                )
-            )
-
-            # Multiply by 2 for the skip-connections.
-            in_channels = channels * 2
-
-        ups.append(
-            Upsample(
+        self.mid = nn.Sequential(
+            ResBlock(
                 in_channels,
-                64,
-                num_res_blocks=num_res_blocks,
-                dropout=0,
-                use_attention=False,
-            )
+                in_channels,
+                dropout=dropout,
+            ),
+            AttentionBlock(
+                in_channels,
+                num_heads=num_heads,
+            ),
+            ResBlock(
+                in_channels,
+                in_channels,
+                dropout=dropout,
+            ),
         )
 
+        ups = []
+        for level, mult in list(enumerate(channel_mults))[::-1]:
+            channels = mult * inner_channels
+
+            for i in range(num_res_blocks + 1):
+                skip_channels = input_block_channels.pop()
+
+                layers = [
+                    ResBlock(
+                        in_channels + skip_channels,
+                        channels,
+                        dropout=dropout,
+                    )
+                ]
+
+                if mult in attention_mults:
+                    layers.append(
+                        AttentionBlock(
+                            channels,
+                            num_heads=num_heads,
+                        )
+                    )
+
+                in_channels = channels
+
+                if level > 0 and i == num_res_blocks:
+                    layers.append(
+                        ResBlock(
+                            channels,
+                            channels,
+                            dropout=dropout,
+                            operation="up",
+                        )
+                    )
+
+                ups.append(nn.Sequential(*layers))
+
         self.ups = nn.ModuleList(ups)
+
         self.out = nn.Sequential(
-            nn.BatchNorm2d(64),
+            nn.BatchNorm2d(in_channels),
             nn.SiLU(),
-            nn.Conv2d(
-                64,
-                out_channels,
-                kernel_size=3,
-                padding=1,
-            ),
-            nn.Tanh(),
+            zero_module(
+                nn.Conv2d(
+                    in_channels,
+                    out_channels,
+                    kernel_size=3,
+                    padding=1,
+                )
+            )
         )
 
     def forward(self, x):
-        """
-        :param x: [N x in_channels x H x W]
-        :returns: [N x out_channels x H x W]
-        """
-
+        skips = []
         h = x.type(torch.float32)
 
-        feats = []
         for layer in self.downs:
             h = layer(h)
-            feats.append(h)
+            skips.append(h)
 
-        # Remove last feature map, since that should not be used in
-        # skip-connection.
-        feats.pop()
+        h = self.mid(h)
 
-        for index, layer in enumerate(self.ups):
-            if index != 0:
-                h = torch.cat([h, feats.pop()], dim=1)
-
+        for layer in self.ups:
+            h = torch.cat([h, skips.pop()], dim=1)
             h = layer(h)
 
-        return self.out(h)
+        return self.out(h.type(x.dtype))
 
 
 class Discriminator(nn.Module):
     def __init__(
         self,
         in_channels: int = 3,
-        num_res_blocks: int = 3,
         num_heads: int = 4,
     ):
         super().__init__()
 
-        # Input: 256 (pixels), 6 (channels)
         self.net = nn.Sequential(
-            Downsample(
-                in_channels * 2,
-                64,
-                num_res_blocks=num_res_blocks,
-                use_attention=False,
-            ),
-            Downsample(
-                64,
-                128,
-                num_res_blocks=num_res_blocks,
-                use_attention=False,
-            ),
-            Downsample(
-                128,
-                256,
-                num_res_blocks=num_res_blocks,
-                use_attention=True,
-                num_heads=num_heads,
-            ),
-            ResAttentionBlock(
-                256,
-                512,
-                num_res_blocks=num_res_blocks,
-                use_attention=True,
-                num_heads=num_heads,
-            ),
-            ResBlock(512, 1),
+            ResBlock(in_channels * 2, 64),
+            ResBlock(64, 64),
+            ResBlock(64, 64, operation="down"),
+
+            ResBlock(64, 128),
+            ResBlock(128, 128),
+            ResBlock(128, 128, operation="down"),
+
+            ResBlock(128, 256),
+            AttentionBlock(256, num_heads=num_heads),
+            ResBlock(256, 256),
+            AttentionBlock(256, num_heads=num_heads),
+            ResBlock(256, 256, operation="down"),
+
+            ResBlock(256, 512),
+            AttentionBlock(512, num_heads=num_heads),
+            ResBlock(512, 512),
+            AttentionBlock(512, num_heads=num_heads),
+            ResBlock(512, 512, operation="down"),
+
+            nn.Conv2d(512, 1, kernel_size=3, padding=1),
         )
-
-        self.net.apply(self.init_weights)
-
-    def init_weights(self, m: nn.Module):
-        if isinstance(m, nn.Conv2d):
-            nn.init.normal_(m.weight, 0., 0.02)
 
     def forward(self, x, y):
         """
@@ -353,145 +378,60 @@ class Discriminator(nn.Module):
         return self.net(xy_concat)
 
 
-class Upsample(nn.Module):
-    """
-    Residual-Attention-Upsample block.
-
-    :param in_channels: Input channels.
-    :param out_channels: Output channels.
-    :param num_res_blocks: Amount of residual blocks.
-    :param dropout: Dropout percentage.
-    :param use_attention: Whether to use self-attention after the residual
-        blocks or not.
-    :param num_heads: Amount of heads.
-
-    """
+class ResBlock(nn.Module):
+    """Residual block with skip-connection."""
 
     def __init__(
         self,
         in_channels: int,
         out_channels: int,
-        num_res_blocks: int = 2,
-        dropout: float = 0,
-        use_attention: bool = True,
-        num_heads: int = 1,
+        dropout: float = 0.0,
+        operation: Optional[Literal["up", "down"]] = None,
     ):
         super().__init__()
+
+        self.operation = operation
 
         self.net = nn.Sequential(
-            ResAttentionBlock(
+            nn.BatchNorm2d(in_channels),
+            nn.SiLU(),
+            self.operation_module(),
+            nn.Conv2d(
                 in_channels,
                 out_channels,
-                num_res_blocks,
-                dropout,
-                use_attention,
-                num_heads,
+                kernel_size=3,
+                padding=1,
             ),
-            nn.Upsample(scale_factor=2),
-        )
-
-    def forward(self, x):
-        """
-        :param x: [N x in_channels x H x W]
-        :returns: [N x out_channels x (H / 2) x (W / 2)]
-
-        """
-
-        return self.net(x)
-
-
-class Downsample(nn.Module):
-    """
-    Residual-Attention-Downsample block.
-
-    :param in_channels: Input channels.
-    :param out_channels: Output channels.
-    :param num_res_blocks: Amount of residual blocks.
-    :param dropout: Dropout percentage.
-    :param use_attention: Whether to use self-attention after the residual
-        blocks or not.
-    :param num_heads: Amount of heads.
-
-    """
-
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        num_res_blocks: int = 2,
-        dropout: float = 0,
-        use_attention: bool = True,
-        num_heads: int = 1,
-    ):
-        super().__init__()
-
-        self.net = nn.Sequential(
-            ResAttentionBlock(
-                in_channels,
-                out_channels,
-                num_res_blocks,
-                dropout,
-                use_attention,
-                num_heads,
-            ),
-            nn.MaxPool2d(2),
-        )
-
-    def forward(self, x):
-        """
-        :param x: [N x in_channels x H x W]
-        :returns: [N x out_channels x (H / 2) x (W / 2)]
-
-        """
-
-        return self.net(x)
-
-
-class ResAttentionBlock(nn.Module):
-    """
-    Residual-Attention block.
-
-    :param in_channels: Input channels.
-    :param out_channels: Output channels.
-    :param num_res_blocks: Amount of residual blocks.
-    :param dropout: Dropout percentage.
-    :param use_attention: Whether to use self-attention after the residual
-        blocks or not.
-    :param num_heads: Amount of heads.
-
-    """
-
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        num_res_blocks: int = 2,
-        dropout: float = 0,
-        use_attention: bool = True,
-        num_heads: int = 1,
-    ):
-        super().__init__()
-
-        net = []
-        for _ in range(num_res_blocks):
-            net.append(
-                ResBlock(
-                    in_channels,
+            nn.BatchNorm2d(out_channels),
+            nn.SiLU(),
+            nn.Dropout(dropout) if dropout > 0 else nn.Identity(),
+            zero_module(
+                nn.Conv2d(
                     out_channels,
-                    dropout=dropout,
+                    out_channels,
+                    kernel_size=3,
+                    padding=1
                 )
-            )
-
-            in_channels = out_channels
-
-        net.append(
-            AttentionBlock(
-                out_channels,
-                num_heads,
-            ) if use_attention else nn.Identity()
+            ),
         )
 
-        self.net = nn.Sequential(*net)
+        self.skip_connection = nn.Sequential(
+            self.operation_module(),
+            nn.Conv2d(
+                in_channels,
+                out_channels,
+                kernel_size=1,
+            ),
+        )
+
+    def operation_module(self):
+        if self.operation == "up":
+            return nn.Upsample(scale_factor=2, mode="nearest")
+
+        if self.operation == "down":
+            return nn.AvgPool2d(2)
+
+        return nn.Identity()
 
     def forward(self, x):
         """
@@ -500,7 +440,7 @@ class ResAttentionBlock(nn.Module):
 
         """
 
-        return self.net(x)
+        return self.net(x) + self.skip_connection(x)
 
 
 class AttentionBlock(nn.Module):
@@ -532,14 +472,7 @@ class AttentionBlock(nn.Module):
             ),
         )
 
-        self.out = nn.Conv2d(channels, channels, kernel_size=1)
-
-        self.qkv_conv.apply(self.init_weights)
-        self.out.apply(self.init_weights)
-
-    def init_weights(self, m: nn.Module):
-        if isinstance(m, nn.Conv2d) or isinstance(m, nn.Conv1d):
-            nn.init.normal_(m.weight, 0., 0.02)
+        self.out = zero_module(nn.Conv1d(channels, channels, kernel_size=1))
 
     def forward(self, x):
         """
@@ -569,101 +502,14 @@ class AttentionBlock(nn.Module):
             key_heads * scale,
         )
         attention = F.softmax(scores.float(), dim=-1).type(scores.dtype)
-
         weighted = torch.einsum("bts,bcs->bct", attention, value_heads)
-        weighted = weighted.reshape(n, -1, h, w)
+        weighted = weighted.reshape(n, c, -1)
 
-        return self.out(weighted)
-
-
-class ResBlock(nn.Module):
-    """
-    Residual block with a skip-connection.
-
-    :param in_channels: Input channels.
-    :param out_channels: Output channels.
-    :param dropout: Dropout percentage.
-
-    """
-
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        dropout: float = 0,
-    ):
-        super().__init__()
-
-        self.blocks = nn.Sequential(
-            Block(in_channels, out_channels),
-            Block(out_channels, out_channels, dropout=dropout),
-        )
-
-        # Sets the skip connection to the correct amount of channels
-        self.skip_connection = nn.Conv2d(
-            in_channels,
-            out_channels,
-            kernel_size=3,
-            padding=1,
-        ) if in_channels != out_channels else nn.Identity()
-
-        self.skip_connection.apply(self.init_weights)
-
-    def init_weights(self, m: nn.Module):
-        if isinstance(m, nn.Conv2d):
-            nn.init.normal_(m.weight, 0., 0.02)
-
-    def forward(self, x):
-        """
-        :param x: [N x in_channels x H x W]
-        :return: [N x out_channels x H x W]
-
-        """
-
-        return self.blocks(x) + self.skip_connection(x)
+        return (x + self.out(weighted)).reshape(n, -1, h, w)
 
 
-class Block(nn.Module):
-    """
-    Convolution with normalization, activation function, and dropout.
+def zero_module(module: nn.Module):
+    for p in module.parameters():
+        p.detach().zero_()
 
-    :param in_channels: Input channels.
-    :param out_channels: Output channels.
-    :param num_groups: Number of groups in the GroupNorm layer.
-    :param dropout: Dropout percentage.
-
-    """
-
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        dropout: float = 0,
-    ):
-        super().__init__()
-        self.block = nn.Sequential(
-            nn.BatchNorm2d(in_channels) if in_channels >= 32 else nn.Identity(),
-            nn.SiLU(),
-            nn.Dropout(dropout) if dropout > 0 else nn.Identity(),
-            nn.Conv2d(
-                in_channels,
-                out_channels,
-                kernel_size=3,
-                padding=1,
-            ),
-        )
-
-        self.block.apply(self.init_weights)
-
-    def init_weights(self, m: nn.Module):
-        if isinstance(m, nn.Conv2d):
-            nn.init.normal_(m.weight, 0., 0.02)
-
-    def forward(self, x):
-        """
-        :param x: [N x in_channels x H x W]
-        :returns: [N x out_channels x H x W]
-
-        """
-
-        return self.block(x)
+    return module

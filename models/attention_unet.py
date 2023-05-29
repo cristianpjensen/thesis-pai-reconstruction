@@ -33,7 +33,7 @@ class AttentionUNetGAN(pl.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters()
-        self.example_input_array = torch.Tensor(32, in_channels, 256, 256)
+        self.example_input_array = torch.Tensor(2, in_channels, 256, 256)
         self.automatic_optimization = False
 
         self.in_channels = in_channels

@@ -1,5 +1,6 @@
 import torch
 import pytorch_lightning as pl
+import wandb
 import argparse
 from argparse import ArgumentParser
 import pathlib
@@ -82,12 +83,18 @@ def main(hparams):
         filename="checkpoint-{epoch:02d}-{val_ssim:.2f}-{val_psnr:.2f}",
     )
 
+    wandb_logger = pl.loggers.WandbLogger(
+        project="pat-reconstruction",
+        name=hparams.name,
+    )
+    csv_logger = pl.loggers.CSVLogger("logs", name=hparams.name)
+
     trainer = pl.Trainer(
         max_epochs=hparams.epochs,
         max_steps=hparams.steps,
         log_every_n_steps=10,
         check_val_every_n_epoch=hparams.val_epochs,
-        logger=pl.loggers.CSVLogger("logs", name=hparams.name),
+        logger=[csv_logger, wandb_logger],
         precision=hparams.precision,
         callbacks=[
             EMACallback(0.9999),

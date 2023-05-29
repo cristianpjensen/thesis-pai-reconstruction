@@ -144,6 +144,8 @@ class Palette(pl.LightningModule):
             os.mkdir(epoch_dir)
 
     def validation_step(self, batch, batch_idx):
+        wandb_logger = self.loggers[1]
+
         x, y_0 = batch
         batch_size = x.shape[0]
 
@@ -172,6 +174,11 @@ class Palette(pl.LightningModule):
 
             index = batch_size * batch_idx + ind
 
+            wandb_logger.log_image(
+                key="process",
+                images=[denormalize(process)],
+            )
+
             write_png(
                 to_int(denormalize(process)).cpu(),
                 os.path.join(
@@ -193,6 +200,11 @@ class Palette(pl.LightningModule):
                     f"output_{index}.png",
                 ),
                 compression_level=0,
+            )
+
+            wandb_logger.log_image(
+                key="predictions",
+                images=[denormalize(y_tx)],
             )
 
         self.log(

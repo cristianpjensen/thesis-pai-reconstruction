@@ -170,8 +170,16 @@ class AttentionUNetGAN(pl.LightningModule):
         self.untoggle_optimizer(opt_g)
 
     def validation_step(self, batch, batch_idx):
+        wandb_logger = self.loggers[1]
+
         input, target = batch
         pred = self.forward(input)
+
+        for y in pred:
+            wandb_logger.log_image(
+                key="predictions",
+                images=[denormalize(y)],
+            )
 
         g_ssim = ssim(denormalize(pred), denormalize(target), data_range=1.0)
         g_psnr = psnr(denormalize(pred), denormalize(target), data_range=1.0)

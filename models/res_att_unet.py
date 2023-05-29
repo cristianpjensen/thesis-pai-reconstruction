@@ -183,8 +183,16 @@ class ModernUnetGAN(pl.LightningModule):
         self.untoggle_optimizer(opt_g)
 
     def validation_step(self, batch, batch_idx):
+        wandb_logger = self.loggers[1]
+
         input, target = batch
         pred = self.forward(input)
+
+        for y in pred:
+            wandb_logger.log_image(
+                key="predictions",
+                images=[denormalize(y)],
+            )
 
         g_ssim = ssim(denormalize(pred), denormalize(target), data_range=1.0)
         g_psnr = psnr(denormalize(pred), denormalize(target), data_range=1.0)
@@ -357,13 +365,7 @@ class Discriminator(nn.Module):
             AttentionBlock(256, num_heads=num_heads),
             ResBlock(256, 256, operation="down"),
 
-            ResBlock(256, 512),
-            AttentionBlock(512, num_heads=num_heads),
-            ResBlock(512, 512),
-            AttentionBlock(512, num_heads=num_heads),
-            ResBlock(512, 512, operation="down"),
-
-            nn.Conv2d(512, 1, kernel_size=3, padding=1),
+            nn.Conv2d(256, 1, kernel_size=3, padding=1),
         )
 
     def forward(self, x, y):

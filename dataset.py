@@ -83,7 +83,7 @@ class ImageDataModule(pl.LightningDataModule):
         return DataLoader(
             ImageDataset(self.val_pairs, transform=self.transform),
             batch_size=self.batch_size,
-            shuffle=True,
+            shuffle=False,
             drop_last=False,
         )
 
@@ -91,7 +91,7 @@ class ImageDataModule(pl.LightningDataModule):
         return DataLoader(
             ImageDataset(self.test_pairs, transform=self.transform),
             batch_size=self.batch_size,
-            shuffle=True,
+            shuffle=False,
             drop_last=False,
         )
 
@@ -99,7 +99,7 @@ class ImageDataModule(pl.LightningDataModule):
         return DataLoader(
             ImageDataset(self.pred_pairs, transform=self.transform),
             batch_size=self.batch_size,
-            shuffle=True,
+            shuffle=False,
             drop_last=False,
         )
 

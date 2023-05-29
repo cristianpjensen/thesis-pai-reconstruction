@@ -11,6 +11,7 @@ import os
 from models.pix2pix import Pix2Pix
 from models.palette import Palette
 from models.attention_unet import AttentionUNetGAN
+from models.res_att_unet import ModernUnetGAN
 from reporting.depth_ssim import depth_ssim
 from dataset import ImageDataModule
 from models.utils import denormalize, to_int
@@ -31,6 +32,10 @@ def main(hparams):
 
         case "attention_unet":
             model = AttentionUNetGAN.load_from_checkpoint(hparams.checkpoint)
+            model.freeze()
+
+        case "res_att_unet":
+            model = ModernUnetGAN.load_from_checkpoint(hparams.checkpoint)
             model.freeze()
 
     if model is None:
@@ -105,7 +110,7 @@ if __name__ == "__main__":
         "-m",
         "--model",
         default="pix2pix",
-        choices=["pix2pix", "palette", "attention_unet"],
+        choices=["pix2pix", "palette", "attention_unet", "res_att_unet"],
     )
     args = parser.parse_args()
 

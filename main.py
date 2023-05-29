@@ -6,6 +6,7 @@ import pathlib
 from models.pix2pix import Pix2Pix
 from models.palette import Palette
 from models.attention_unet import AttentionUNetGAN
+from models.res_att_unet import ModernUnetGAN
 from dataset import ImageDataModule
 from callbacks.ema import EMACallback
 
@@ -51,6 +52,17 @@ def main(hparams):
                 num_heads=4,
             )
 
+        case "res_att_unet":
+            model = ModernUnetGAN(
+                in_channels=1 if hparams.grayscale else 3,
+                out_channels=1 if hparams.grayscale else 3,
+                channel_mults=channel_mults,
+                att_mults=att_mults,
+                dropout=hparams.dropout,
+                num_res_blocks=3,
+                num_heads=4,
+            )
+
     if model is None:
         raise ValueError(f"Incorrect model name ({hparams.model})")
 
@@ -64,7 +76,6 @@ def main(hparams):
     )
 
     trainer = pl.Trainer(
-        deterministic=True,
         max_epochs=hparams.epochs,
         max_steps=hparams.steps,
         log_every_n_steps=10,
@@ -147,7 +158,7 @@ if __name__ == "__main__":
         "-m",
         "--model",
         default="pix2pix",
-        choices=["pix2pix", "palette", "attention_unet"],
+        choices=["pix2pix", "palette", "attention_unet", "res_att_unet"],
     )
     args = parser.parse_args()
 

@@ -75,6 +75,13 @@ def main(hparams):
         normalize=True,
     )
 
+    checkpoint_callback = pl.callbacks.ModelCheckpoint(
+        save_top_k=3,
+        monitor="val_ssim",
+        mode="max",
+        filename="checkpoint-{epoch:02d}-{val_ssim:.2f}-{val_psnr:.2f}",
+    )
+
     trainer = pl.Trainer(
         max_epochs=hparams.epochs,
         max_steps=hparams.steps,
@@ -82,7 +89,10 @@ def main(hparams):
         check_val_every_n_epoch=hparams.val_epochs,
         logger=pl.loggers.CSVLogger("logs", name=hparams.name),
         precision=hparams.precision,
-        callbacks=[EMACallback(0.9999)] if hparams.ema else [],
+        callbacks=[
+            EMACallback(0.9999),
+            checkpoint_callback,
+        ] if hparams.ema else [checkpoint_callback],
         benchmark=True,
     )
     trainer.fit(model, data_module)

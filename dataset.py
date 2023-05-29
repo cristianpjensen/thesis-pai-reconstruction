@@ -75,32 +75,32 @@ class ImageDataModule(pl.LightningDataModule):
         return DataLoader(
             ImageDataset(self.train_pairs, transform=self.transform),
             batch_size=self.batch_size,
-            shuffle=False,
-            drop_last=True,
+            shuffle=True,
+            drop_last=False,
         )
 
     def val_dataloader(self):
         return DataLoader(
             ImageDataset(self.val_pairs, transform=self.transform),
             batch_size=self.batch_size,
-            shuffle=False,
-            drop_last=True,
+            shuffle=True,
+            drop_last=False,
         )
 
     def test_dataloader(self):
         return DataLoader(
             ImageDataset(self.test_pairs, transform=self.transform),
             batch_size=self.batch_size,
-            shuffle=False,
-            drop_last=True,
+            shuffle=True,
+            drop_last=False,
         )
 
     def predict_dataloader(self):
         return DataLoader(
             ImageDataset(self.pred_pairs, transform=self.transform),
             batch_size=self.batch_size,
-            shuffle=False,
-            drop_last=True,
+            shuffle=True,
+            drop_last=False,
         )
 
 

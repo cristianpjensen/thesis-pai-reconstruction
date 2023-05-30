@@ -1,13 +1,12 @@
 import torch
 import pytorch_lightning as pl
-import wandb
 import argparse
 from argparse import ArgumentParser
 import pathlib
 from models.pix2pix import Pix2Pix
 from models.palette import Palette
 from models.attention_unet import AttentionUNetGAN
-from models.res_att_unet import ModernUnetGAN
+from models.res_unet import ResUnetGAN
 from dataset import ImageDataModule
 from callbacks.ema import EMACallback
 
@@ -53,15 +52,12 @@ def main(hparams):
                 num_heads=4,
             )
 
-        case "res_att_unet":
-            model = ModernUnetGAN(
+        case "res_unet":
+            model = ResUnetGAN(
                 in_channels=1 if hparams.grayscale else 3,
                 out_channels=1 if hparams.grayscale else 3,
                 channel_mults=channel_mults,
-                att_mults=att_mults,
                 dropout=hparams.dropout,
-                num_res_blocks=2,
-                num_heads=4,
             )
 
     if model is None:
@@ -175,7 +171,7 @@ if __name__ == "__main__":
         "-m",
         "--model",
         default="pix2pix",
-        choices=["pix2pix", "palette", "attention_unet", "res_att_unet"],
+        choices=["pix2pix", "palette", "attention_unet", "res_unet"],
     )
     args = parser.parse_args()
 

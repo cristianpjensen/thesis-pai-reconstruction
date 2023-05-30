@@ -140,3 +140,6 @@ logs/
 output/
 
 test*
+jobs/
+preds/
+wandb/

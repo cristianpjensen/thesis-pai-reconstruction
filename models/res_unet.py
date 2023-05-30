@@ -303,7 +303,9 @@ class Upsample(nn.Module):
                 stride=2,
                 padding=1,
             ),
+            nn.BatchNorm2d(out_channels),
             nn.Dropout(dropout) if dropout > 0 else nn.Identity(),
+            nn.ReLU(),
         )
 
         self.up.apply(init_weights)
@@ -344,8 +346,6 @@ class ResidualBlock(nn.Module):
         super().__init__()
 
         self.conv_block = nn.Sequential(
-            nn.BatchNorm2d(in_channels) if in_channels > 32 else nn.Identity(),
-            nn.ReLU() if in_channels > 32 else nn.Identity(),
             nn.Conv2d(
                 in_channels,
                 out_channels,
@@ -356,6 +356,8 @@ class ResidualBlock(nn.Module):
             nn.BatchNorm2d(out_channels),
             nn.ReLU(),
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(),
         )
 
         self.conv_skip = nn.Sequential(

@@ -15,7 +15,6 @@ class ImageDataModule(pl.LightningDataModule):
         batch_size: int = 1,
         val_size: float | int = 0.2,
         normalize: bool = False,
-        grayscale: bool = False,
     ):
         super().__init__()
         self.input_dir = input_dir
@@ -23,7 +22,6 @@ class ImageDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.val_size = val_size
         self.normalize = normalize
-        self.grayscale = grayscale
 
         trans = [
             transforms.Resize((256, 256), antialias=True),
@@ -34,9 +32,6 @@ class ImageDataModule(pl.LightningDataModule):
             trans.append(
                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
             )
-
-        if grayscale:
-            trans.append(transforms.Grayscale(1))
 
         self.transform = transforms.Compose(trans)
 

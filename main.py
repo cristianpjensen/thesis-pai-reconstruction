@@ -5,7 +5,7 @@ from argparse import ArgumentParser
 import pathlib
 from models.pix2pix import Pix2Pix
 from models.palette import Palette
-from models.attention_unet import AttentionUNetGAN
+from models.attention_unet import AttentionUnetGAN
 from models.res_unet import ResUnetGAN
 from dataset import ImageDataModule
 from callbacks.ema import EMACallback
@@ -15,8 +15,6 @@ torch.set_float32_matmul_precision("medium")
 
 
 def main(hparams):
-    pl.seed_everything(42, workers=True)
-
     channel_mults = [int(x) for x in hparams.channel_mults.split(",")]
     att_mults = [int(x) for x in hparams.attention_mults.split(",")]
 
@@ -24,17 +22,17 @@ def main(hparams):
     match hparams.model:
         case "pix2pix":
             model = Pix2Pix(
-                in_channels=1 if hparams.grayscale else 3,
-                out_channels=1 if hparams.grayscale else 3,
+                in_channels=3,
+                out_channels=3,
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
                 l1_lambda=hparams.l1_lambda,
             )
 
         case "attention_unet":
-            model = AttentionUNetGAN(
-                in_channels=1 if hparams.grayscale else 3,
-                out_channels=1 if hparams.grayscale else 3,
+            model = AttentionUnetGAN(
+                in_channels=3,
+                out_channels=3,
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
                 l1_lambda=hparams.l1_lambda,
@@ -42,8 +40,8 @@ def main(hparams):
 
         case "palette":
             model = Palette(
-                in_channels=1 if hparams.grayscale else 3,
-                out_channels=1 if hparams.grayscale else 3,
+                in_channels=3,
+                out_channels=3,
                 inner_channels=64,
                 channel_mults=channel_mults,
                 attention_res=att_mults,
@@ -54,8 +52,8 @@ def main(hparams):
 
         case "res_unet":
             model = ResUnetGAN(
-                in_channels=1 if hparams.grayscale else 3,
-                out_channels=1 if hparams.grayscale else 3,
+                in_channels=3,
+                out_channels=3,
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
             )
@@ -68,7 +66,6 @@ def main(hparams):
         hparams.target_dir,
         batch_size=hparams.batch_size,
         val_size=hparams.val_size,
-        grayscale=hparams.grayscale,
         normalize=True,
     )
 
@@ -135,12 +132,6 @@ if __name__ == "__main__":
         help="Floating-point precision"
     )
     parser.add_argument(
-        "--grayscale",
-        default=False,
-        action=argparse.BooleanOptionalAction,
-        help="Whether to turn the images into grayscaled images."
-    )
-    parser.add_argument(
         "--ema",
         default=False,
         action=argparse.BooleanOptionalAction,
@@ -148,7 +139,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--channel-mults",
-        default="1,2,4,8",
+        default="1,2,4,8,8,8,8,8",
         help="""
             Defines the U-net architecture's depth and width. Should be
             comma-separated powers of 2.

@@ -1,195 +1,28 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchmetrics.functional import (
-    peak_signal_noise_ratio as psnr,
-    structural_similarity_index_measure as ssim,
-)
-import pytorch_lightning as pl
-from .utils import denormalize
+from .gan import GAN, Discriminator
+from .pix2pix import EncoderBlock, DecoderBlock
 
 
-class AttentionUNetGAN(pl.LightningModule):
-    """The same as the Pix2Pix model, but with attention in the
-    skip-connections as in the Attention U-net model.
+class AttentionUnetGAN(GAN):
+    """The same model as pix2pix modified to use attention in the skip
+    connections (Oktay et al. 2018).
 
-    :param in_channels: Channels of input images.
-    :param out_channels: Channels of output images.
+    :param in_channels: Input channels that can vary if the images are
+        grayscale or color.
+    :param out_channels: Input channels that can vary if the images are
+        grayscale or color.
     :param channel_mults: Channel multiples that define the depth and width of
-        the U-net.
-    :param dropout: Dropout percentage. Only used in the layers with maximum
-        channel multiplication.
-    :param l1_lambda: Weight given to the L1 loss over the discriminator loss.
+        the U-net architecture.
+    :param dropout: Dropout percentage used in some of the decoder blocks.
+    :param l1_lambda: How much the L1 loss should be weighted in the loss
+        function.
+
+    :input: [N x in_channels x H x W]
+    :output: [N x out_channels x H x W]
 
     """
-
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        channel_mults: tuple[int] = (1, 2, 4, 8, 8, 8, 8, 8),
-        dropout: float = 0.5,
-        l1_lambda: float = 50,
-    ):
-        super().__init__()
-        self.save_hyperparameters()
-        self.example_input_array = torch.Tensor(2, in_channels, 256, 256)
-        self.automatic_optimization = False
-
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.l1_lambda = l1_lambda
-
-        self.generator = AttentionUNet(
-            in_channels,
-            out_channels,
-            channel_mults=channel_mults,
-            dropout=dropout,
-        )
-        self.discriminator = Discriminator(in_channels)
-
-    def forward(self, x):
-        """
-        :param x: [N x in_channels x H x W]
-        :returns: [N x out_channels x H x W]
-
-        """
-
-        return self.generator(x)
-
-    def generator_loss(
-        self,
-        pred: torch.Tensor,
-        pred_label: torch.Tensor,
-        target: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Loss function for generator.
-
-        :param pred: Predicted image by generator.
-        :param pred_label: Predicted label of generated image by discriminator.
-        :param target: Target image.
-        :returns: Loss.
-
-        """
-
-        # We want to fool the discriminator into predicting all ones.
-        bce_loss = F.binary_cross_entropy_with_logits(
-            pred_label,
-            torch.ones_like(pred_label),
-        )
-
-        l1_loss = F.l1_loss(pred, target)
-
-        return bce_loss + self.l1_lambda * l1_loss
-
-    def discriminator_loss(
-        self,
-        pred_label: torch.Tensor,
-        target_label: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Loss function for discriminator.
-
-        :param pred_label: predicted label of generated image by discriminator.
-        :param target_label: predicted label of real target image by
-            discriminator.
-        :returns: Loss.
-
-        """
-
-        # The discriminator should predict all zeros for "fake" images.
-        pred_loss = F.binary_cross_entropy_with_logits(
-            pred_label,
-            torch.zeros_like(pred_label),
-        )
-
-        # The discriminator should predict all ones for "real" images.
-        target_loss = F.binary_cross_entropy_with_logits(
-            target_label,
-            torch.ones_like(pred_label),
-        )
-
-        return pred_loss + target_loss
-
-    def configure_optimizers(self):
-        opt_g = torch.optim.Adam(
-            self.generator.parameters(),
-            lr=2e-4,
-            betas=(0.5, 0.999),
-            eps=1e-7,
-        )
-        opt_d = torch.optim.Adam(
-            self.discriminator.parameters(),
-            lr=2e-4,
-            betas=(0.5, 0.999),
-            eps=1e-7,
-        )
-
-        return [opt_g, opt_d], []
-
-    def training_step(self, batch, batch_idx):
-        opt_g, opt_d = self.optimizers()
-
-        # Train discriminator.
-        self.toggle_optimizer(opt_d)
-
-        input, target = batch
-        pred = self.forward(input)
-
-        target_label = self.discriminator(input, target)
-        pred_label = self.discriminator(input, pred)
-        d_loss = self.discriminator_loss(pred_label, target_label)
-
-        self.log("d_loss", d_loss, prog_bar=True)
-
-        self.discriminator.zero_grad(set_to_none=True)
-        self.manual_backward(d_loss)
-        opt_d.step()
-
-        self.untoggle_optimizer(opt_d)
-
-        # Train generator.
-        self.toggle_optimizer(opt_g)
-
-        pred = self.forward(input)
-        pred_label = self.discriminator(input, pred)
-        g_loss = self.generator_loss(pred, pred_label, target)
-
-        g_ssim = ssim(denormalize(pred), denormalize(target), data_range=1.0)
-        g_psnr = psnr(denormalize(pred), denormalize(target), data_range=1.0)
-
-        self.log("g_loss", g_loss, prog_bar=True)
-        self.log("train_ssim", g_ssim, prog_bar=True)
-        self.log("train_psnr", g_psnr, prog_bar=True)
-
-        self.generator.zero_grad(set_to_none=True)
-        self.manual_backward(g_loss)
-        opt_g.step()
-
-        self.untoggle_optimizer(opt_g)
-
-    def validation_step(self, batch, batch_idx):
-        wandb_logger = self.loggers[1]
-
-        input, target = batch
-        pred = self.forward(input)
-
-        for y in pred:
-            wandb_logger.log_image(
-                key="predictions",
-                images=[denormalize(y)],
-            )
-
-        g_ssim = ssim(denormalize(pred), denormalize(target), data_range=1.0)
-        g_psnr = psnr(denormalize(pred), denormalize(target), data_range=1.0)
-
-        self.log("val_ssim", g_ssim, prog_bar=True)
-        self.log("val_psnr", g_psnr, prog_bar=True)
-
-
-class AttentionUNet(nn.Module):
-    """U-net with attention skip-connections."""
 
     def __init__(
         self,
@@ -197,219 +30,39 @@ class AttentionUNet(nn.Module):
         out_channels: int = 3,
         channel_mults: tuple[int] = (1, 2, 4, 8, 8, 8, 8, 8),
         dropout: float = 0.5,
+        l1_lambda: float = 50,
     ):
-        super().__init__()
-
-        downs = []
-        for index, mult in enumerate(channel_mults):
-            channels = mult * 64
-
-            downs.append(
-                Downsample(
-                    in_channels,
-                    channels,
-                    batchnorm=index != 0,
-                )
-            )
-
-            in_channels = channels
-
-        self.downs = nn.ModuleList(downs)
-
-        ups = []
-        atts = []
-        for index, mult in reversed(list(enumerate(channel_mults[:-1]))):
-            channels = mult * 64
-
-            ups.append(
-                Upsample(
-                    in_channels,
-                    channels,
-                    dropout=dropout if index < 3 else 0,
-                )
-            )
-
-            atts.append(AttentionBlock(channels, channels, channels // 2))
-
-            # Multiply by 2 for the skip-connections.
-            in_channels = channels * 2
-
-        ups.append(
-            nn.ConvTranspose2d(
-                in_channels,
-                out_channels,
-                kernel_size=4,
-                stride=2,
-                padding=1,
-                bias=False,
-            )
+        generator = AttentionUnet(
+            in_channels,
+            out_channels,
+            channel_mults=channel_mults,
+            dropout=dropout,
         )
 
-        self.atts = nn.ModuleList(atts)
-        self.ups = nn.ModuleList(ups)
-        self.out = nn.Tanh()
+        discriminator = Discriminator(in_channels)
 
-    def forward(self, x):
-        """
-        :param x: [N x in_channels x H x W]
-        :returns: [N x out_channels x H x W]
+        super().__init__(generator, discriminator, l1_lambda=l1_lambda)
 
-        """
-
-        h = x.type(torch.float32)
-
-        feats = []
-        for layer in self.downs:
-            h = layer(h)
-            feats.append(h)
-
-        feats.pop()
-
-        for index, layer in enumerate(self.ups):
-            if index != 0:
-                att = self.atts[index - 1]
-                s = att(feats.pop(), h)
-                h = torch.cat([h, s], dim=1)
-
-            h = layer(h)
-
-        return self.out(h)
-
-
-class Discriminator(nn.Module):
-    """The same discriminator as in the Pix2Pix GAN."""
-
-    def __init__(self, in_channels: int = 3):
-        super().__init__()
-
-        # The discriminator has to distinguish between the real label and the
-        # prediction by the generator. So, it has two images as input, thus the
-        # channels are doubled.
-
-        # Input: 256 (pixels), 6 (channels)
-        self.net = nn.Sequential(
-            Downsample(in_channels * 2, 64, batchnorm=False),  # 128, 64
-            Downsample(64, 128),   # 64, 128
-            Downsample(128, 256),  # 32, 256
-            nn.ZeroPad2d(1),       # 34, 256
-            Downsample(256, 512, stride=1, padding=0),  # 31, 512
-            nn.ZeroPad2d(1),  # 33, 512
-            nn.Conv2d(
-                512,
-                1,
-                kernel_size=4,
-                stride=1,
-                padding=0,
-                bias=False
-            ),  # 30, 1
-        )
-
-        self.net.apply(self.init_weights)
-
-    def init_weights(self, m: nn.Module):
-        if isinstance(m, nn.Conv2d):
-            nn.init.normal_(m.weight, 0., 0.02)
-
-    def forward(self, x, y):
-        """
-        :param x: [N x in_channels x H x W]
-        :param y: [N x in_channels x H x W]
-        :returns: [OUT x 1]
-
-        """
-
-        xy_concat = torch.cat((x, y), dim=1)
-        return self.net(xy_concat)
-
-
-class Downsample(nn.Module):
-    """Convolution-BatchNorm-ReLU encoder layer."""
-
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        size: int = 4,
-        stride: int = 2,
-        padding: int = 1,
-        batchnorm: bool = True,
-    ):
-        super().__init__()
-
-        self.down = nn.Sequential(
-            nn.Conv2d(
-                in_channels,
-                out_channels,
-                kernel_size=size,
-                stride=stride,
-                padding=padding,
-                bias=False,
-            ),
-            nn.BatchNorm2d(out_channels) if batchnorm else nn.Identity(),
-            nn.LeakyReLU(0.2),
-        )
-
-        self.down.apply(self.init_weights)
-
-    def init_weights(self, m: nn.Module):
-        if isinstance(m, nn.Conv2d):
-            nn.init.normal_(m.weight, 0., 0.02)
-
-    def forward(self, x):
-        """
-        :param x: [N x in_channels x H x W]
-        :returns: [N x out_channels x H / 2 x W / 2]
-
-        """
-
-        return self.down(x)
-
-
-class Upsample(nn.Module):
-    """Convolution-BatchNorm-ReLU decoder layer with optional dropout."""
-
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        size: int = 4,
-        stride: int = 2,
-        padding: int = 1,
-        dropout: float = 0.5,
-    ):
-        super().__init__()
-
-        self.up = nn.Sequential(
-            nn.ConvTranspose2d(
-                in_channels,
-                out_channels,
-                kernel_size=size,
-                stride=stride,
-                padding=padding,
-                bias=False,
-            ),
-            nn.BatchNorm2d(out_channels),
-            nn.Dropout(dropout) if dropout > 0 else nn.Identity(),
-            nn.ReLU(),
-        )
-
-        self.up.apply(self.init_weights)
-
-    def init_weights(self, m: nn.Module):
-        if isinstance(m, nn.ConvTranspose2d):
-            nn.init.normal_(m.weight, 0., 0.02)
-
-    def forward(self, x):
-        """
-        :param x: [N x in_channels x H x W]
-        :returns: [N x out_channels x H * 2 x W * 2]
-
-        """
-
-        return self.up(x)
+        self.example_input_array = torch.Tensor(2, in_channels, 256, 256)
+        self.save_hyperparameters()
 
 
 class AttentionBlock(nn.Module):
+    """Attention block used in the skip connections of the attention U-net.
+
+    :param input_channels: Amount of channels that the encoder layer that is
+        being skipped has.
+    :param signal_channels: Amount of channels that the signal has, which is
+        the output of the previous decoder layer.
+    :param attention_channels: Amount of channels that the input and signal are
+        mapped to.
+
+    :input x: [N x input_channels x H x W]
+    :input signal: [N x signal_channels x H x W]
+    :output: [N x input_channels x H x W]
+
+    """
+
     def __init__(
         self,
         input_channels: int,
@@ -434,25 +87,122 @@ class AttentionBlock(nn.Module):
             nn.Sigmoid(),
         )
 
-        self.input_gate.apply(self.init_weights)
-        self.signal_gate.apply(self.init_weights)
-        self.attention.apply(self.init_weights)
-
-    def init_weights(self, m: nn.Module):
-        if isinstance(m, nn.Conv2d):
-            nn.init.normal_(m.weight, 0., 0.02)
-
     def forward(self, x, signal):
-        """
-        :param x: [N x input_channels x H x W]
-        :param signal: [N x signal_channels x H x W]
-        :returns: [N x input_channels x H x W]
-
-        """
-
         h_input = self.input_gate(x)
         h_signal = self.signal_gate(signal)
         h = F.relu(h_signal + h_input)
         attention = self.attention(h)
 
         return x * attention
+
+
+class AttentionUnet(nn.Module):
+    """U-net with attention used in the skip-connections.
+
+    :param in_channels: Input channels that can vary if the images are
+        grayscale or color.
+    :param out_channels: Input channels that can vary if the images are
+        grayscale or color.
+    :param channel_mults: Channel multiples that define the depth and width of
+        the U-net architecture.
+    :param dropout: Dropout percentage used in some of the decoder blocks.
+
+    :input: [N x in_channels x H x W]
+    :output: [N x out_channels x H x W]
+
+    """
+
+    def __init__(
+        self,
+        in_channels: int = 3,
+        out_channels: int = 3,
+        channel_mults: tuple[int] = (1, 2, 4, 8, 8, 8, 8, 8),
+        dropout: float = 0.5,
+    ):
+        super().__init__()
+
+        # Encoder blocks
+        encoders = [
+            nn.Conv2d(
+                in_channels,
+                channel_mults[0] * 64,
+                kernel_size=4,
+                stride=2,
+                padding=1
+            ),
+        ]
+        in_channels = channel_mults[0] * 64
+        for level, mult in enumerate(channel_mults[1:], 1):
+            channels = mult * 64
+
+            encoders.append(
+                EncoderBlock(
+                    in_channels,
+                    channels,
+                    norm=level != len(channel_mults) - 1,
+                )
+            )
+
+            in_channels = channels
+
+        self.encoders = nn.ModuleList(encoders)
+
+        # Decoder and attention blocks
+        decoders = []
+        attention_blocks = []
+        for level, mult in reversed(list(enumerate(channel_mults[:-1]))):
+            channels = mult * 64
+
+            decoders.append(
+                DecoderBlock(
+                    in_channels,
+                    channels,
+                    # Only dropout in the lowest three decoder blocks that are
+                    # at the widest part
+                    dropout=dropout if (
+                        mult == max(channel_mults) and
+                        level > len(channel_mults) - 5
+                    ) else 0,
+                )
+            )
+            attention_blocks.append(
+                AttentionBlock(channels, channels, channels // 2)
+            )
+
+            in_channels = channels * 2
+
+        decoders.append(
+            nn.ConvTranspose2d(
+                in_channels,
+                out_channels,
+                kernel_size=4,
+                stride=2,
+                padding=1,
+            )
+        )
+
+        self.decoders = nn.ModuleList(decoders)
+        self.attention_blocks = nn.ModuleList(attention_blocks)
+        self.out = nn.Tanh()
+
+    def forward(self, x):
+        h = x.type(torch.float32)
+
+        feats = []
+        for encoder in self.encoders:
+            h = encoder(h)
+            feats.append(h)
+
+        # Remove last feature map, since that should not be used in
+        # skip-connection
+        feats.pop()
+
+        for index, decoder in enumerate(self.decoders):
+            if index != 0:
+                attention = self.attention_blocks[index - 1]
+                s = attention(feats.pop(), h)
+                h = torch.cat([h, s], dim=1)
+
+            h = decoder(h)
+
+        return self.out(h)

@@ -2,15 +2,15 @@ import torch
 from torchmetrics.functional import (
     peak_signal_noise_ratio as psnr,
     structural_similarity_index_measure as ssim,
+    mean_squared_error as mse,
 )
 from torchvision.io import write_png
-import pytorch_lightning as pl
 from argparse import ArgumentParser
 import pathlib
 import os
 from models.pix2pix import Pix2Pix
 from models.palette import Palette
-from models.attention_unet import AttentionUNetGAN
+from models.attention_unet import AttentionUnetGAN
 from models.res_unet import ResUnetGAN
 from reporting.depth_ssim import depth_ssim
 from dataset import ImageDataModule
@@ -18,8 +18,6 @@ from models.utils import denormalize, to_int
 
 
 def main(hparams):
-    pl.seed_everything(42, workers=True)
-
     model = None
     match hparams.model:
         case "pix2pix":
@@ -31,7 +29,7 @@ def main(hparams):
             model.freeze()
 
         case "attention_unet":
-            model = AttentionUNetGAN.load_from_checkpoint(hparams.checkpoint)
+            model = AttentionUnetGAN.load_from_checkpoint(hparams.checkpoint)
             model.freeze()
 
         case "res_unet":
@@ -45,26 +43,28 @@ def main(hparams):
         hparams.input_dir,
         hparams.target_dir,
         batch_size=hparams.batch_size,
-        grayscale=model.in_channels == 1,
         normalize=True,
     )
     data_module.setup("predict")
+    dataloader = data_module.predict_dataloader()
 
-    # Get inputs and outputs into big tensors
-    inputs = [batch[0] for batch in data_module.predict_dataloader()]
-    inputs = torch.cat(inputs, axis=0).to(model.device)
+    preds = [model(batch[0].to(model.device)) for batch in dataloader]
+    preds = torch.cat(preds, axis=0)
+    preds = denormalize(preds).cpu()
 
-    targets = [batch[1] for batch in data_module.predict_dataloader()]
+    targets = [batch[1] for batch in dataloader]
     targets = torch.cat(targets, axis=0)
     targets = denormalize(targets).cpu()
 
-    preds = model(inputs)
-    preds = denormalize(preds).cpu()
+    ssims, ssim_images = ssim(
+        preds,
+        targets,
+        data_range=1.0,
+        return_full_image=True,
+        reduction="none",
+    )
 
-    print("SSIM:", ssim(preds, targets, data_range=1.0).tolist())
-    print("pSNR:", psnr(preds, targets, data_range=1.0).tolist())
-
-    # Output SSIM over depth
+    # Output average SSIM over depth
     ssim_over_depth = depth_ssim(preds, targets)
     ssim_over_depth_string = "depth,ssim\n"
     for depth, val in enumerate(ssim_over_depth, 1):
@@ -76,12 +76,47 @@ def main(hparams):
     with open(os.path.join(hparams.pred_dir, "depth_ssim.csv"), "w") as f:
         f.write(ssim_over_depth_string)
 
+    # Output prediction images
+    outputs_dir = os.path.join(hparams.pred_dir, "outputs")
+    if not os.path.isdir(outputs_dir):
+        os.mkdir(outputs_dir)
+
     for index, pred in enumerate(preds):
         write_png(
             to_int(pred),
-            os.path.join(hparams.pred_dir, f"{index}.png"),
+            os.path.join(outputs_dir, f"{str(index).zfill(5)}.png"),
             compression_level=0,
         )
+
+    # Output SSIM maps
+    ssim_images_dir = os.path.join(hparams.pred_dir, "ssim_images")
+    if not os.path.isdir(ssim_images_dir):
+        os.mkdir(ssim_images_dir)
+
+    for index, ssim_image in enumerate(ssim_images):
+        write_png(
+            to_int(ssim_image),
+            os.path.join(
+                hparams.pred_dir,
+                "ssim_images",
+                f"{str(index).zfill(5)}.png",
+            )
+        )
+
+    # Output mean statistics over entire test dataset
+    ssim_stat = ssims.mean()
+    psnr_stat = psnr(preds, targets, data_range=1.0)
+    rmse_stat = mse(preds, targets, squared=False)
+
+    with open(os.path.join(hparams.pred_dir, "stats.txt"), "w") as f:
+        f.write(f"SSIM: {ssim_stat}\npSNR: {psnr_stat}\nRMSE: {rmse_stat}\n")
+
+    ssim_per_image_string = ""
+    for index, image_ssim in enumerate(ssims):
+        ssim_per_image_string += f"{str(index).zfill(5)}: {image_ssim}\n"
+
+    with open(os.path.join(hparams.pred_dir, "ssim_per_image.txt"), "w") as f:
+        f.write(ssim_per_image_string)
 
 
 if __name__ == "__main__":

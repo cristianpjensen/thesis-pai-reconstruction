@@ -44,6 +44,131 @@ class ResUnetGAN(GAN):
         self.save_hyperparameters()
 
 
+class ResidualBlock18(nn.Module):
+    """Residual block as used in ResNet-18 and ResNet-34 (He et al. 2015)."""
+
+    def __init__(self, in_channels: int, out_channels: int):
+        super().__init__()
+
+        self.conv_block = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),
+        )
+
+        self.conv_skip = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=1),
+            nn.BatchNorm2d(out_channels),
+        ) if in_channels != out_channels else nn.Identity()
+
+        self.out = nn.ReLU()
+
+    def forward(self, x):
+        return self.out(self.conv_block(x) + self.conv_skip(x))
+
+
+class ResidualBlock50(nn.Module):
+    """Residual block as used in ResNet-50, ResNet-101, and ResNet-152
+    (He et al. 2015)."""
+
+    def __init__(self, in_channels: int, out_channels: int):
+        super().__init__()
+
+        bottleneck = in_channels // 4
+
+        self.conv_block = nn.Sequential(
+            nn.Conv2d(in_channels, bottleneck, kernel_size=1),
+            nn.BatchNorm2d(bottleneck),
+            nn.ReLU(),
+            nn.Conv2d(bottleneck, bottleneck, kernel_size=3, padding=1),
+            nn.BatchNorm2d(bottleneck),
+            nn.ReLU(),
+            nn.Conv2d(bottleneck, out_channels, kernel_size=1),
+            nn.BatchNorm2d(out_channels),
+        )
+
+        self.conv_skip = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=1),
+            nn.BatchNorm2d(out_channels),
+        ) if in_channels != out_channels else nn.Identity()
+
+        self.out = nn.ReLU()
+
+    def forward(self, x):
+        return self.out(self.conv_block(x) + self.conv_skip(x))
+
+
+class ResidualBlockV2(nn.Module):
+    """Residual block as used in ResNet V2 (He et al. 2016)."""
+
+    def __init__(self, in_channels: int, out_channels: int):
+        super().__init__()
+
+        self.conv_block = nn.Sequential(
+            nn.BatchNorm2d(in_channels),
+            nn.ReLU(),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(),
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+        )
+
+        self.conv_skip = nn.Sequential(
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(),
+            nn.Conv2d(in_channels, out_channels, kernel_size=1),
+        ) if in_channels != out_channels else nn.Identity()
+
+    def forward(self, x):
+        return self.conv_block(x) + self.conv_skip(x)
+
+
+class ResidualBlockNeXt(nn.Module):
+    """Residual block as used in ResNeXt (Xie et al. 2017)."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        cardinality: int = 32,
+        bottleneck: int = 4,
+    ):
+        super().__init__()
+
+        branches = []
+
+        for _ in range(cardinality):
+            branch = nn.Sequential(
+                nn.Conv2d(in_channels, bottleneck, kernel_size=1),
+                nn.BatchNorm2d(bottleneck),
+                nn.ReLU(),
+                nn.Conv2d(bottleneck, bottleneck, kernel_size=3, padding=1),
+                nn.BatchNorm2d(bottleneck),
+                nn.ReLU(),
+                nn.Conv2d(bottleneck, out_channels, kernel_size=1),
+                nn.BatchNorm2d(out_channels),
+            )
+
+            branches.append(branch)
+
+        self.branches = nn.ModuleList(branches)
+        self.branches_out = nn.ReLU()
+
+        self.conv_skip = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=1),
+            nn.BatchNorm2d(out_channels),
+        ) if in_channels != out_channels else nn.Identity()
+
+    def forward(self, x):
+        branches_sum = self.branches[0](x)
+        for branch in self.branches[1:]:
+            branches_sum += branch(x)
+
+        return self.branches_out(branches_sum) + self.conv_skip(x)
+
+
 class EncoderBlock(nn.Module):
     """Encoder block that downsamples the input by 2.
 
@@ -56,34 +181,16 @@ class EncoderBlock(nn.Module):
 
     """
 
-    def __init__(self, in_channels: int, out_channels: int, norm: bool = True):
+    def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
 
-        self.conv_block = nn.Sequential(
-            nn.LeakyReLU(0.2),
-            nn.Conv2d(
-                in_channels,
-                out_channels,
-                kernel_size=4,
-                stride=2,
-                padding=1
-            ),
-            nn.BatchNorm2d(out_channels),
-
-            nn.LeakyReLU(0.2),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels) if norm else nn.Identity(),
-        )
-
-        self.conv_skip = nn.Conv2d(
-            in_channels,
-            out_channels,
-            kernel_size=1,
-            stride=2,
+        self.encode = nn.Sequential(
+            ResidualBlockNeXt(in_channels, out_channels),
+            nn.MaxPool2d(2),
         )
 
     def forward(self, x):
-        return self.conv_block(x) + self.conv_skip(x)
+        return self.encode(x)
 
 
 class DecoderBlock(nn.Module):
@@ -106,33 +213,14 @@ class DecoderBlock(nn.Module):
     ):
         super().__init__()
 
-        self.conv_block = nn.Sequential(
-            nn.ReLU(),
-            nn.ConvTranspose2d(
-                in_channels,
-                out_channels,
-                kernel_size=4,
-                stride=2,
-                padding=1
-            ),
-            nn.BatchNorm2d(out_channels),
-
-            nn.ReLU(),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),
-
+        self.decode = nn.Sequential(
+            ResidualBlockNeXt(in_channels, out_channels),
             nn.Dropout2d(dropout) if dropout > 0 else nn.Identity(),
-        )
-
-        self.conv_skip = nn.ConvTranspose2d(
-            in_channels,
-            out_channels,
-            kernel_size=2,
-            stride=2,
+            nn.Upsample(scale_factor=2),
         )
 
     def forward(self, x):
-        return self.conv_block(x) + self.conv_skip(x)
+        return self.decode(x)
 
 
 class ResUnet(nn.Module):
@@ -160,28 +248,14 @@ class ResUnet(nn.Module):
     ):
         super().__init__()
 
+        self.in_conv = nn.Conv2d(in_channels, 64, kernel_size=3, padding=1)
+        in_channels = 64
+
         # Encoder blocks
-        encoders = [
-            nn.Conv2d(
-                in_channels,
-                channel_mults[0] * 64,
-                kernel_size=4,
-                stride=2,
-                padding=1
-            ),
-        ]
-        in_channels = channel_mults[0] * 64
-        for level, mult in enumerate(channel_mults[1:], 1):
+        encoders = []
+        for level, mult in enumerate(channel_mults):
             channels = mult * 64
-
-            encoders.append(
-                EncoderBlock(
-                    in_channels,
-                    channels,
-                    norm=level != len(channel_mults) - 1,
-                )
-            )
-
+            encoders.append(EncoderBlock(in_channels, channels))
             in_channels = channels
 
         self.encoders = nn.ModuleList(encoders)
@@ -206,34 +280,34 @@ class ResUnet(nn.Module):
 
             in_channels = channels * 2
 
-        decoders.append(
-            nn.ConvTranspose2d(
-                in_channels,
-                out_channels,
-                kernel_size=4,
-                stride=2,
-                padding=1,
-            )
-        )
+        decoders.append(DecoderBlock(in_channels, channel_mults[0] * 64))
 
         self.decoders = nn.ModuleList(decoders)
-        self.out = nn.Tanh()
+        self.out = nn.Sequential(
+            nn.Conv2d(
+                channel_mults[0] * 64,
+                out_channels,
+                kernel_size=3,
+                padding=1,
+            ),
+            nn.Tanh(),
+        )
 
     def forward(self, x):
-        h = x.type(torch.float32)
+        h = self.in_conv(x.type(torch.float32))
 
-        feats = []
+        skips = []
         for encoder in self.encoders:
             h = encoder(h)
-            feats.append(h)
+            skips.append(h)
 
         # Remove last feature map, since that should not be used in
         # skip-connection
-        feats.pop()
+        skips.pop()
 
         for index, decoder in enumerate(self.decoders):
             if index != 0:
-                h = torch.cat([h, feats.pop()], dim=1)
+                h = torch.cat([h, skips.pop()], dim=1)
 
             h = decoder(h)
 

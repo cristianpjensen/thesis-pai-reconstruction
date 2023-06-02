@@ -50,10 +50,38 @@ def main(hparams):
                 num_heads=4,
             )
 
-        case "res_unet":
+        case "res18_unet":
             model = ResUnetGAN(
                 in_channels=3,
                 out_channels=3,
+                res_type="18",
+                channel_mults=channel_mults,
+                dropout=hparams.dropout,
+            )
+
+        case "res50_unet":
+            model = ResUnetGAN(
+                in_channels=3,
+                out_channels=3,
+                res_type="50",
+                channel_mults=channel_mults,
+                dropout=hparams.dropout,
+            )
+
+        case "resv2_unet":
+            model = ResUnetGAN(
+                in_channels=3,
+                out_channels=3,
+                res_type="v2",
+                channel_mults=channel_mults,
+                dropout=hparams.dropout,
+            )
+
+        case "resnext_unet":
+            model = ResUnetGAN(
+                in_channels=3,
+                out_channels=3,
+                res_type="next",
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
             )
@@ -162,7 +190,15 @@ if __name__ == "__main__":
         "-m",
         "--model",
         default="pix2pix",
-        choices=["pix2pix", "palette", "attention_unet", "res_unet"],
+        choices=[
+            "pix2pix",
+            "attention_unet",
+            "res18_unet",
+            "res50_unet",
+            "resv2_unet",
+            "resnext_unet",
+            "palette",
+        ],
     )
     args = parser.parse_args()
 

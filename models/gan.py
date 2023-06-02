@@ -2,11 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from torchmetrics.functional import (
-    peak_signal_noise_ratio as psnr,
-    structural_similarity_index_measure as ssim,
-)
-from .utils import denormalize, init_weights
+from .utils import denormalize, init_weights, ssim, psnr
 
 
 class GAN(pl.LightningModule):
@@ -146,8 +142,8 @@ class GAN(pl.LightningModule):
         pred_label = self.discriminator(input_, pred)
         g_loss = self.generator_loss(pred, pred_label, target)
 
-        g_ssim = ssim(denormalize(pred), denormalize(target), data_range=1.0)
-        g_psnr = psnr(denormalize(pred), denormalize(target), data_range=1.0)
+        g_ssim = ssim(denormalize(pred), denormalize(target))
+        g_psnr = psnr(denormalize(pred), denormalize(target))
 
         self.log("g_loss", g_loss, prog_bar=True)
         self.log("train_ssim", g_ssim, prog_bar=True)
@@ -171,8 +167,8 @@ class GAN(pl.LightningModule):
                 images=[denormalize(y)],
             )
 
-        g_ssim = ssim(denormalize(pred), denormalize(target), data_range=1.0)
-        g_psnr = psnr(denormalize(pred), denormalize(target), data_range=1.0)
+        g_ssim = ssim(denormalize(pred), denormalize(target))
+        g_psnr = psnr(denormalize(pred), denormalize(target))
 
         self.log("val_ssim", g_ssim, prog_bar=True)
         self.log("val_psnr", g_psnr, prog_bar=True)

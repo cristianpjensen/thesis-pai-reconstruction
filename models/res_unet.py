@@ -1,6 +1,10 @@
 import torch
 import torch.nn as nn
 from .gan import GAN, Discriminator
+from typing import Literal
+
+
+ResType = Literal["18", "50", "v2", "next"]
 
 
 class ResUnetGAN(GAN):
@@ -10,6 +14,7 @@ class ResUnetGAN(GAN):
         grayscale or color.
     :param out_channels: Input channels that can vary if the images are
         grayscale or color.
+    :param res_type: Which residual block to use.
     :param channel_mults: Channel multiples that define the depth and width of
         the U-net architecture.
     :param dropout: Dropout percentage used in some of the decoder blocks.
@@ -25,6 +30,7 @@ class ResUnetGAN(GAN):
         self,
         in_channels: int = 3,
         out_channels: int = 3,
+        res_type: ResType = "18",
         channel_mults: tuple[int] = (1, 2, 4, 8, 8, 8, 8, 8),
         dropout: float = 0.5,
         l1_lambda: float = 50,
@@ -32,6 +38,7 @@ class ResUnetGAN(GAN):
         generator = ResUnet(
             in_channels,
             out_channels,
+            res_type,
             channel_mults=channel_mults,
             dropout=dropout,
         )
@@ -116,7 +123,7 @@ class ResidualBlockV2(nn.Module):
         )
 
         self.conv_skip = nn.Sequential(
-            nn.BatchNorm2d(out_channels),
+            nn.BatchNorm2d(in_channels),
             nn.ReLU(),
             nn.Conv2d(in_channels, out_channels, kernel_size=1),
         ) if in_channels != out_channels else nn.Identity()
@@ -169,23 +176,31 @@ class ResidualBlockNeXt(nn.Module):
         return self.branches_out(branches_sum) + self.conv_skip(x)
 
 
+res_blocks: dict[ResType, nn.Module] = {
+    "18": ResidualBlock18,
+    "50": ResidualBlock50,
+    "v2": ResidualBlockV2,
+    "next": ResidualBlockNeXt,
+}
+
+
 class EncoderBlock(nn.Module):
     """Encoder block that downsamples the input by 2.
 
     :param in_channels: Input channels.
     :param out_channels: Output channels.
-    :param norm: Whether to use batch normalization or not.
+    :param res_type: Which residual block to use.
 
     :input: [N x in_channels x H x W]
     :output: [N x out_channels x (H / 2) x (W / 2)]
 
     """
 
-    def __init__(self, in_channels: int, out_channels: int):
+    def __init__(self, in_channels: int, out_channels: int, res_type: ResType):
         super().__init__()
 
         self.encode = nn.Sequential(
-            ResidualBlockNeXt(in_channels, out_channels),
+            res_blocks[res_type](in_channels, out_channels),
             nn.MaxPool2d(2),
         )
 
@@ -199,6 +214,7 @@ class DecoderBlock(nn.Module):
     :param in_channels: Input channels.
     :param out_channels: Output channels.
     :param dropout: Dropout percentage.
+    :param res_type: Which residual block to use.
 
     :input: [N x in_channels x H x W]
     :output: [N x out_channels x (H * 2) x (W * 2)]
@@ -209,12 +225,13 @@ class DecoderBlock(nn.Module):
         self,
         in_channels: int,
         out_channels: int,
-        dropout: float = 0.5,
+        res_type: ResType,
+        dropout: float = 0.0,
     ):
         super().__init__()
 
         self.decode = nn.Sequential(
-            ResidualBlockNeXt(in_channels, out_channels),
+            res_blocks[res_type](in_channels, out_channels),
             nn.Dropout2d(dropout) if dropout > 0 else nn.Identity(),
             nn.Upsample(scale_factor=2),
         )
@@ -230,6 +247,7 @@ class ResUnet(nn.Module):
         grayscale or color.
     :param out_channels: Input channels that can vary if the images are
         grayscale or color.
+    :param res_type: Which residual block to use.
     :param channel_mults: Channel multiples that define the depth and width of
         the U-net architecture.
     :param dropout: Dropout percentage used in some of the decoder blocks.
@@ -243,6 +261,7 @@ class ResUnet(nn.Module):
         self,
         in_channels: int = 3,
         out_channels: int = 3,
+        res_type: ResType = "18",
         channel_mults: tuple[int] = (1, 2, 4, 8, 8, 8, 8, 8),
         dropout: float = 0.5,
     ):
@@ -255,7 +274,7 @@ class ResUnet(nn.Module):
         encoders = []
         for level, mult in enumerate(channel_mults):
             channels = mult * 64
-            encoders.append(EncoderBlock(in_channels, channels))
+            encoders.append(EncoderBlock(in_channels, channels, res_type))
             in_channels = channels
 
         self.encoders = nn.ModuleList(encoders)
@@ -269,6 +288,7 @@ class ResUnet(nn.Module):
                 DecoderBlock(
                     in_channels,
                     channels,
+                    res_type,
                     # Only dropout in the lowest three decoder blocks that are
                     # at the widest part
                     dropout=dropout if (
@@ -280,7 +300,13 @@ class ResUnet(nn.Module):
 
             in_channels = channels * 2
 
-        decoders.append(DecoderBlock(in_channels, channel_mults[0] * 64))
+        decoders.append(
+            DecoderBlock(
+                in_channels,
+                channel_mults[0] * 64,
+                res_type,
+            )
+        )
 
         self.decoders = nn.ModuleList(decoders)
         self.out = nn.Sequential(

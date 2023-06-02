@@ -32,7 +32,7 @@ def main(hparams):
             model = AttentionUnetGAN.load_from_checkpoint(hparams.checkpoint)
             model.freeze()
 
-        case "res_unet":
+        case "res18_unet" | "res50_unet" | "resv2_unet" | "resnext_unet":
             model = ResUnetGAN.load_from_checkpoint(hparams.checkpoint)
             model.freeze()
 
@@ -145,7 +145,15 @@ if __name__ == "__main__":
         "-m",
         "--model",
         default="pix2pix",
-        choices=["pix2pix", "palette", "attention_unet", "res_unet"],
+        choices=[
+            "pix2pix",
+            "attention_unet",
+            "res18_unet",
+            "res50_unet",
+            "resv2_unet",
+            "resnext_unet",
+            "palette",
+        ],
     )
     args = parser.parse_args()
 

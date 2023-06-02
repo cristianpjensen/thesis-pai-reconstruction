@@ -5,15 +5,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.io import write_png
-from torchmetrics.functional import (
-    peak_signal_noise_ratio as psnr,
-    structural_similarity_index_measure as ssim,
-)
 import pytorch_lightning as pl
 from tqdm import tqdm
 import os
 from .guided_diffusion.unet import UNet
-from .utils import denormalize, to_int
+from .utils import denormalize, to_int, ssim, psnr
 
 
 class Palette(pl.LightningModule):
@@ -209,12 +205,12 @@ class Palette(pl.LightningModule):
 
         self.log(
             "val_ssim",
-            ssim(denormalize(y_pred), denormalize(y_0), data_range=1.0),
+            ssim(denormalize(y_pred), denormalize(y_0)),
             prog_bar=True,
         )
         self.log(
             "val_psnr",
-            psnr(denormalize(y_pred), denormalize(y_0), data_range=1.0),
+            psnr(denormalize(y_pred), denormalize(y_0)),
             prog_bar=True,
         )
 

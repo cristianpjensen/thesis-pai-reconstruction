@@ -14,6 +14,7 @@ class TransUnetGAN(GAN):
         channel_mults: tuple[int] = (1, 2, 4, 8),
         patch_size: int = 2,
         num_heads: int = 8,
+        dropout: float = 0.5,
         l1_lambda: int = 50,
     ):
         generator = TransUnet(
@@ -23,6 +24,7 @@ class TransUnetGAN(GAN):
             channel_mults=channel_mults,
             patch_size=patch_size,
             num_heads=num_heads,
+            dropout=dropout,
         )
         discriminator = Discriminator(in_channels)
 
@@ -55,6 +57,7 @@ class TransUnet(nn.Module):
         channel_mults: tuple[int] = (1, 2, 4, 8),
         patch_size: int = 16,
         num_heads: int = 8,
+        dropout: float = 0.5,
     ):
         super().__init__()
 
@@ -76,6 +79,7 @@ class TransUnet(nn.Module):
             input_size=image_size // (2 ** len(channel_mults)),
             patch_size=patch_size,
             num_heads=num_heads,
+            dropout=dropout,
             transformer_layers=12,
         )
 
@@ -122,6 +126,7 @@ class VisionTransformer(nn.Module):
         input_size: int,
         patch_size: int = 16,
         num_heads: int = 8,
+        dropout: float = 0.5,
         transformer_layers: int = 12,
     ):
         super().__init__()
@@ -148,6 +153,7 @@ class VisionTransformer(nn.Module):
         trans_enc_layer = nn.TransformerEncoderLayer(
             patch_dim,
             num_heads,
+            dropout=dropout,
             activation="gelu",
         )
 

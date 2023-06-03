@@ -23,7 +23,12 @@ def init_weights(module: nn.Module):
         (nn.BatchNorm1d, nn.BatchNorm2d, nn.GroupNorm, nn.LayerNorm),
     ):
         nn.init.constant_(module.weight, 1.0)
+
         nn.init.constant_(module.bias, 0.0)
+
+
+def get_parameter_count(model: nn.Module):
+    return sum(p.numel() for p in model.parameters())
 
 
 def ssim(pred: torch.Tensor, target: torch.Tensor):

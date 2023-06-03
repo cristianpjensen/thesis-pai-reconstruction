@@ -99,6 +99,7 @@ def main(hparams):
                 channel_mults=channel_mults,
                 patch_size=2,
                 num_heads=8,
+                dropout=hparams.dropout,
                 l1_lambda=hparams.l1_lambda,
             )
 

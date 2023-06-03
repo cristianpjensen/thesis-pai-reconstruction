@@ -13,9 +13,8 @@ from models.palette import Palette
 from models.attention_unet import AttentionUnetGAN
 from models.res_unet import ResUnetGAN
 from models.trans_unet import TransUnetGAN
-from reporting.depth_ssim import depth_ssim
 from dataset import ImageDataModule
-from models.utils import denormalize, to_int
+from models.utils import denormalize, to_int, get_parameter_count
 
 
 def main(hparams):
@@ -69,11 +68,11 @@ def main(hparams):
         reduction="none",
     )
 
-    # Output average SSIM over depth
+    # Output average SSIM over depth and standard deviation
     ssim_over_depth = depth_ssim(preds, targets)
-    ssim_over_depth_string = "depth,ssim\n"
-    for depth, val in enumerate(ssim_over_depth, 1):
-        ssim_over_depth_string += f"{depth},{val}\n"
+    ssim_over_depth_string = "depth,mean,std\n"
+    for depth, (mean, std) in enumerate(ssim_over_depth, 1):
+        ssim_over_depth_string += f"{depth},{mean},{std}\n"
 
     report_dir = os.path.join("reports", hparams.name)
 
@@ -114,16 +113,52 @@ def main(hparams):
     ssim_stat = ssim(preds, targets, data_range=1.0)
     psnr_stat = psnr(preds, targets, data_range=1.0)
     rmse_stat = mse(preds, targets, squared=False)
+    parameter_count = get_parameter_count(model)
 
     with open(os.path.join(report_dir, "stats.txt"), "w") as f:
-        f.write(f"SSIM: {ssim_stat}\npSNR: {psnr_stat}\nRMSE: {rmse_stat}\n")
+        f.write(f"SSIM: {ssim_stat}\n")
+        f.write(f"pSNR: {psnr_stat}\n")
+        f.write(f"RMSE: {rmse_stat}\n")
+        f.write(f"Parameter count: {parameter_count}\n")
 
-    ssim_per_image_string = ""
+    ssim_per_image_string = "image,ssim\n"
     for index, image_ssim in enumerate(ssims):
-        ssim_per_image_string += f"{str(index).zfill(5)}: {image_ssim}\n"
+        ssim_per_image_string += f"{str(index).zfill(5)},{image_ssim}\n"
 
-    with open(os.path.join(report_dir, "ssim_per_image.txt"), "w") as f:
+    with open(os.path.join(report_dir, "ssim_per_image.csv"), "w") as f:
         f.write(ssim_per_image_string)
+
+
+def depth_ssim(
+    preds: torch.Tensor,
+    targets: torch.Tensor,
+    num_depths: int = 16
+) -> list[(float, float)]:
+    """Compute mean and standard deviation of SSIM over depth of images. The
+    depth goes in the y-axis of the image.
+
+    :param preds: [N x C x H x W]
+    :param targets: [N x C x H x W]
+    :returns: [num_depths]
+
+    """
+
+    x_depths = preds.chunk(num_depths, dim=2)
+    y_depths = targets.chunk(num_depths, dim=2)
+
+    ssims = []
+    for depth in range(num_depths):
+        depth_ssim = ssim(
+            x_depths[depth],
+            y_depths[depth],
+            data_range=1.0,
+            reduction="none",
+        )
+        mean = depth_ssim.mean()
+        std = depth_ssim.std()
+        ssims.append((mean, std))
+
+    return torch.tensor(ssims)
 
 
 if __name__ == "__main__":

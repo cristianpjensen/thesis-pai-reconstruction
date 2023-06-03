@@ -7,6 +7,7 @@ from models.pix2pix import Pix2Pix
 from models.palette import Palette
 from models.attention_unet import AttentionUnetGAN
 from models.res_unet import ResUnetGAN
+from models.swin_unet import SwinUnetGAN
 from dataset import ImageDataModule
 from callbacks.ema import EMACallback
 
@@ -57,6 +58,7 @@ def main(hparams):
                 res_type="18",
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
+                l1_lambda=hparams.l1_lambda,
             )
 
         case "res50_unet":
@@ -66,6 +68,7 @@ def main(hparams):
                 res_type="50",
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
+                l1_lambda=hparams.l1_lambda,
             )
 
         case "resv2_unet":
@@ -75,6 +78,7 @@ def main(hparams):
                 res_type="v2",
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
+                l1_lambda=hparams.l1_lambda,
             )
 
         case "resnext_unet":
@@ -84,6 +88,14 @@ def main(hparams):
                 res_type="next",
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
+                l1_lambda=hparams.l1_lambda,
+            )
+
+        case "swin_unet":
+            model = SwinUnetGAN(
+                in_channels=3,
+                out_channels=3,
+                l1_lambda=hparams.l1_lambda,
             )
 
     if model is None:
@@ -197,6 +209,7 @@ if __name__ == "__main__":
             "res50_unet",
             "resv2_unet",
             "resnext_unet",
+            "swin_unet",
             "palette",
         ],
     )

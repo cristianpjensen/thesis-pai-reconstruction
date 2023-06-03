@@ -12,6 +12,7 @@ from models.pix2pix import Pix2Pix
 from models.palette import Palette
 from models.attention_unet import AttentionUnetGAN
 from models.res_unet import ResUnetGAN
+from models.swin_unet import SwinUnetGAN
 from reporting.depth_ssim import depth_ssim
 from dataset import ImageDataModule
 from models.utils import denormalize, to_int
@@ -34,6 +35,10 @@ def main(hparams):
 
         case "res18_unet" | "res50_unet" | "resv2_unet" | "resnext_unet":
             model = ResUnetGAN.load_from_checkpoint(hparams.checkpoint)
+            model.freeze()
+
+        case "swin_unet":
+            model = SwinUnetGAN.load_from_checkpoint(hparams.checkpoint)
             model.freeze()
 
     if model is None:
@@ -70,14 +75,16 @@ def main(hparams):
     for depth, val in enumerate(ssim_over_depth, 1):
         ssim_over_depth_string += f"{depth},{val}\n"
 
-    if not os.path.isdir(hparams.pred_dir):
-        os.mkdir(hparams.pred_dir)
+    report_dir = os.path.join("reports", hparams.name)
 
-    with open(os.path.join(hparams.pred_dir, "depth_ssim.csv"), "w") as f:
+    if not os.path.isdir(report_dir):
+        os.mkdir(report_dir)
+
+    with open(os.path.join(report_dir, "depth_ssim.csv"), "w") as f:
         f.write(ssim_over_depth_string)
 
     # Output prediction images
-    outputs_dir = os.path.join(hparams.pred_dir, "outputs")
+    outputs_dir = os.path.join(report_dir, "outputs")
     if not os.path.isdir(outputs_dir):
         os.mkdir(outputs_dir)
 
@@ -89,7 +96,7 @@ def main(hparams):
         )
 
     # Output SSIM maps
-    ssim_images_dir = os.path.join(hparams.pred_dir, "ssim_images")
+    ssim_images_dir = os.path.join(report_dir, "ssim_images")
     if not os.path.isdir(ssim_images_dir):
         os.mkdir(ssim_images_dir)
 
@@ -97,31 +104,37 @@ def main(hparams):
         write_png(
             to_int(ssim_image),
             os.path.join(
-                hparams.pred_dir,
+                report_dir,
                 "ssim_images",
                 f"{str(index).zfill(5)}.png",
             )
         )
 
     # Output mean statistics over entire test dataset
-    ssim_stat = ssims.mean()
+    ssim_stat = ssim(preds, targets, data_range=1.0)
     psnr_stat = psnr(preds, targets, data_range=1.0)
     rmse_stat = mse(preds, targets, squared=False)
 
-    with open(os.path.join(hparams.pred_dir, "stats.txt"), "w") as f:
+    with open(os.path.join(report_dir, "stats.txt"), "w") as f:
         f.write(f"SSIM: {ssim_stat}\npSNR: {psnr_stat}\nRMSE: {rmse_stat}\n")
 
     ssim_per_image_string = ""
     for index, image_ssim in enumerate(ssims):
         ssim_per_image_string += f"{str(index).zfill(5)}: {image_ssim}\n"
 
-    with open(os.path.join(hparams.pred_dir, "ssim_per_image.txt"), "w") as f:
+    with open(os.path.join(report_dir, "ssim_per_image.txt"), "w") as f:
         f.write(ssim_per_image_string)
 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("checkpoint")
+    parser.add_argument("name")
+    parser.add_argument(
+        "-c",
+        "--checkpoint",
+        type=pathlib.Path,
+        help="Path to checkpoint",
+    )
     parser.add_argument(
         "-i",
         "--input-dir",
@@ -133,12 +146,6 @@ if __name__ == "__main__":
         "--target-dir",
         type=pathlib.Path,
         help="Target images directory path",
-    )
-    parser.add_argument(
-        "-p",
-        "--pred-dir",
-        type=pathlib.Path,
-        help="Directory path that the predictions will be saved to.",
     )
     parser.add_argument("-bs", "--batch-size", default=2, type=int)
     parser.add_argument(
@@ -152,6 +159,7 @@ if __name__ == "__main__":
             "res50_unet",
             "resv2_unet",
             "resnext_unet",
+            "swin_unet",
             "palette",
         ],
     )

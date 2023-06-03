@@ -3,71 +3,72 @@ import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from .utils import denormalize, init_weights, ssim, psnr
+from typing import Literal
 
 
-class GAN(pl.LightningModule):
-    """Generative adversarial network.
+class UnetWrapper(pl.LightningModule):
+    """U-net wrapper with different loss functions.
 
-    :param generator: Generator architecture.
-    :param discriminator: Discriminator architecture.
-    :param l1_lambda: Weight given to the L1 loss over the discriminator loss.
+    :param unet: U-net model.
+    :param loss_type: Loss function for the U-net. One of "gan", "ssim",
+        "psnr", "mse", "ssim+psnr".
+    :param l1_lambda: If `loss="gan"`, this is the weight of the L1 loss in the
+        loss function.
 
-    :note: Make sure to set `self.example_input_array` and call
-        `self.save_hyperparameters()`. Also make sure to pass the generator,
-        discriminator, and L1 lambda to the `super().__init__(...)` call.
+    :input: [N x C x H x W]
+    :output: [N x C x H x W]
 
     """
 
     def __init__(
         self,
-        generator: nn.Module,
-        discriminator: nn.Module,
-        l1_lambda: float = 50,
+        unet: nn.Module,
+        loss_type: Literal["gan", "ssim", "psnr", "ssim+psnr" "mse"] = "gan",
+        l1_lambda: int = 50,
     ):
         super().__init__()
         self.automatic_optimization = False
 
-        self.generator = generator
-        self.discriminator = discriminator
-        self.l1_lambda = l1_lambda
+        self.unet = unet
+        self.loss_type = loss_type
 
-        self.generator.apply(init_weights)
-        self.discriminator.apply(init_weights)
+        self.l1_lambda = None
+        self.discriminator = None
+        if loss_type == "gan":
+            self.l1_lambda = l1_lambda
+            self.discriminator = Discriminator()
+            self.discriminator.apply(init_weights)
+
+        self.unet.apply(init_weights)
 
     def forward(self, x):
-        """
-        :param x: [N x in_channels x H x W]
-        :returns: [N x out_channels x H x W]
+        return self.unet(x)
 
-        """
+    def loss(self, x, pred, target):
+        if self.loss_type == "gan":
+            pred_label = self.discriminator(x, pred)
+            bce_loss = F.binary_cross_entropy_with_logits(
+                pred_label,
+                torch.ones_like(pred_label),
+            )
+            l1_loss = F.l1_loss(pred, target)
 
-        return self.generator(x)
+            return bce_loss + self.l1_lambda * l1_loss
 
-    def generator_loss(
-        self,
-        pred: torch.Tensor,
-        pred_label: torch.Tensor,
-        target: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Loss function for generator.
+        if self.loss_type == "ssim":
+            return -ssim(denormalize(pred), denormalize(target))
 
-        :param pred: Predicted image by generator.
-        :param pred_label: Predicted label of generated image by discriminator.
-        :param target: Target image.
-        :returns: Loss.
+        if self.loss_type == "psnr":
+            return -psnr(denormalize(pred), denormalize(target))
 
-        """
+        if self.loss_type == "ssim+psnr":
+            return -(
+                30 * ssim(denormalize(pred), denormalize(target)) +
+                psnr(denormalize(pred), denormalize(target))
+            )
 
-        # We want to fool the discriminator into predicting all ones
-        bce_loss = F.binary_cross_entropy_with_logits(
-            pred_label,
-            torch.ones_like(pred_label),
-        )
-
-        l1_loss = F.l1_loss(pred, target)
-
-        return bce_loss + self.l1_lambda * l1_loss
+        if self.loss_type == "mse":
+            return F.mse_loss(pred, target)
 
     def discriminator_loss(
         self,
@@ -100,57 +101,66 @@ class GAN(pl.LightningModule):
 
     def configure_optimizers(self):
         opt_g = torch.optim.Adam(
-            self.generator.parameters(),
-            lr=2e-4,
-            betas=(0.5, 0.999),
-            eps=1e-7,
-        )
-        opt_d = torch.optim.Adam(
-            self.discriminator.parameters(),
+            self.unet.parameters(),
             lr=2e-4,
             betas=(0.5, 0.999),
             eps=1e-7,
         )
 
-        return opt_g, opt_d
+        if self.discriminator is not None:
+            opt_d = torch.optim.Adam(
+                self.discriminator.parameters(),
+                lr=2e-4,
+                betas=(0.5, 0.999),
+                eps=1e-7,
+            )
+
+            return opt_g, opt_d
+
+        return opt_g
 
     def training_step(self, batch, batch_idx):
-        opt_g, opt_d = self.optimizers()
+        x, target = batch
 
-        # Train discriminator.
-        self.toggle_optimizer(opt_d)
+        if self.loss_type == "gan":
+            opt_d = self.optimizers()[1]
 
-        input_, target = batch
-        pred = self.generator(input_)
+            # Train discriminator.
+            self.toggle_optimizer(opt_d)
 
-        target_label = self.discriminator(input_, target)
-        pred_label = self.discriminator(input_, pred)
-        d_loss = self.discriminator_loss(pred_label, target_label)
+            pred = self.unet(x)
 
-        self.log("d_loss", d_loss, prog_bar=True)
+            target_label = self.discriminator(x, target)
+            pred_label = self.discriminator(x, pred)
+            d_loss = self.discriminator_loss(pred_label, target_label)
 
-        self.discriminator.zero_grad(set_to_none=True)
-        self.manual_backward(d_loss)
-        opt_d.step()
+            self.log("d_loss", d_loss, prog_bar=True)
 
-        self.untoggle_optimizer(opt_d)
+            self.discriminator.zero_grad(set_to_none=True)
+            self.manual_backward(d_loss)
+            opt_d.step()
 
-        # Train generator.
+            self.untoggle_optimizer(opt_d)
+
+        opt_g = self.optimizers()
+        if isinstance(opt_g, list):
+            opt_g = opt_g[0]
+
+        # Train U-net
         self.toggle_optimizer(opt_g)
 
-        pred = self.generator(input_)
-        pred_label = self.discriminator(input_, pred)
-        g_loss = self.generator_loss(pred, pred_label, target)
+        pred = self.unet(x)
+        loss = self.loss(x, pred, target)
 
-        g_ssim = ssim(denormalize(pred), denormalize(target))
-        g_psnr = psnr(denormalize(pred), denormalize(target))
+        ssim_ = ssim(denormalize(pred), denormalize(target))
+        psnr_ = psnr(denormalize(pred), denormalize(target))
 
-        self.log("g_loss", g_loss, prog_bar=True)
-        self.log("train_ssim", g_ssim, prog_bar=True)
-        self.log("train_psnr", g_psnr, prog_bar=True)
+        self.log("loss", loss, prog_bar=True)
+        self.log("train_ssim", ssim_, prog_bar=True)
+        self.log("train_psnr", psnr_, prog_bar=True)
 
-        self.generator.zero_grad(set_to_none=True)
-        self.manual_backward(g_loss)
+        self.unet.zero_grad(set_to_none=True)
+        self.manual_backward(loss)
         opt_g.step()
 
         self.untoggle_optimizer(opt_g)
@@ -158,8 +168,8 @@ class GAN(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         wandb_logger = self.loggers[1]
 
-        input_, target = batch
-        pred = self.forward(input_)
+        x, target = batch
+        pred = self.forward(x)
 
         for y in pred:
             wandb_logger.log_image(

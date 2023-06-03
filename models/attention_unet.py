@@ -1,11 +1,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .gan import GAN, Discriminator
+from typing import Literal
+from .wrapper import UnetWrapper
 from .pix2pix import EncoderBlock, DecoderBlock
 
 
-class AttentionUnetGAN(GAN):
+class AttentionUnetGAN(UnetWrapper):
     """The same model as pix2pix modified to use attention in the skip
     connections (Oktay et al. 2018).
 
@@ -16,6 +17,8 @@ class AttentionUnetGAN(GAN):
     :param channel_mults: Channel multiples that define the depth and width of
         the U-net architecture.
     :param dropout: Dropout percentage used in some of the decoder blocks.
+    :param loss_type: Loss type. One of "gan", "ssim", "psnr", "mse",
+        "ssim+psnr".
     :param l1_lambda: How much the L1 loss should be weighted in the loss
         function.
 
@@ -30,18 +33,17 @@ class AttentionUnetGAN(GAN):
         out_channels: int = 3,
         channel_mults: tuple[int] = (1, 2, 4, 8, 8, 8, 8, 8),
         dropout: float = 0.5,
+        loss_type: Literal["gan", "ssim", "psnr", "ssim+psnr", "mse"] = "gan",
         l1_lambda: float = 50,
     ):
-        generator = AttentionUnet(
+        unet = AttentionUnet(
             in_channels,
             out_channels,
             channel_mults=channel_mults,
             dropout=dropout,
         )
 
-        discriminator = Discriminator(in_channels)
-
-        super().__init__(generator, discriminator, l1_lambda=l1_lambda)
+        super().__init__(unet, loss_type=loss_type, l1_lambda=l1_lambda)
 
         self.example_input_array = torch.Tensor(2, in_channels, 256, 256)
         self.save_hyperparameters()

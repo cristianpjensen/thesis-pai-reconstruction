@@ -2,10 +2,11 @@ import torch
 import torch.nn as nn
 from einops.layers.torch import Rearrange
 import math
-from .gan import GAN, Discriminator
+from typing import Literal
+from .wrapper import UnetWrapper
 
 
-class TransUnetGAN(GAN):
+class TransUnetGAN(UnetWrapper):
     def __init__(
         self,
         in_channels: int = 3,
@@ -15,9 +16,10 @@ class TransUnetGAN(GAN):
         patch_size: int = 2,
         num_heads: int = 8,
         dropout: float = 0.5,
+        loss_type: Literal["gan", "ssim", "psnr", "ssim+psnr", "mse"] = "gan",
         l1_lambda: int = 50,
     ):
-        generator = TransUnet(
+        unet = TransUnet(
             in_channels,
             out_channels,
             image_size=256,
@@ -26,9 +28,8 @@ class TransUnetGAN(GAN):
             num_heads=num_heads,
             dropout=dropout,
         )
-        discriminator = Discriminator(in_channels)
 
-        super().__init__(generator, discriminator, l1_lambda=l1_lambda)
+        super().__init__(unet, loss_type=loss_type, l1_lambda=l1_lambda)
 
         self.example_input_array = torch.Tensor(2, in_channels, 256, 256)
         self.save_hyperparameters()

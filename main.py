@@ -27,6 +27,7 @@ def main(hparams):
                 out_channels=3,
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
+                loss_type=hparams.loss_type,
                 l1_lambda=hparams.l1_lambda,
             )
 
@@ -36,6 +37,7 @@ def main(hparams):
                 out_channels=3,
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
+                loss_type=hparams.loss_type,
                 l1_lambda=hparams.l1_lambda,
             )
 
@@ -58,6 +60,7 @@ def main(hparams):
                 res_type="18",
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
+                loss_type=hparams.loss_type,
                 l1_lambda=hparams.l1_lambda,
             )
 
@@ -68,6 +71,7 @@ def main(hparams):
                 res_type="50",
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
+                loss_type=hparams.loss_type,
                 l1_lambda=hparams.l1_lambda,
             )
 
@@ -78,6 +82,7 @@ def main(hparams):
                 res_type="v2",
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
+                loss_type=hparams.loss_type,
                 l1_lambda=hparams.l1_lambda,
             )
 
@@ -88,6 +93,7 @@ def main(hparams):
                 res_type="next",
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
+                loss_type=hparams.loss_type,
                 l1_lambda=hparams.l1_lambda,
             )
 
@@ -100,6 +106,7 @@ def main(hparams):
                 patch_size=2,
                 num_heads=8,
                 dropout=hparams.dropout,
+                loss_type=hparams.loss_type,
                 l1_lambda=hparams.l1_lambda,
             )
 
@@ -202,6 +209,12 @@ if __name__ == "__main__":
         "--dropout",
         default=0.0,
         type=float,
+    )
+    parser.add_argument(
+        "-l",
+        "--loss-type",
+        default="gan",
+        choices=["gan", "ssim", "psnr", "ssim+psnr", "mse"],
     )
     parser.add_argument(
         "-m",

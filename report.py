@@ -12,7 +12,7 @@ from models.pix2pix import Pix2Pix
 from models.palette import Palette
 from models.attention_unet import AttentionUnetGAN
 from models.res_unet import ResUnetGAN
-from models.swin_unet import SwinUnetGAN
+from models.vit_unet import ViTUnetGAN
 from reporting.depth_ssim import depth_ssim
 from dataset import ImageDataModule
 from models.utils import denormalize, to_int
@@ -37,12 +37,12 @@ def main(hparams):
             model = ResUnetGAN.load_from_checkpoint(hparams.checkpoint)
             model.freeze()
 
-        case "swin_unet":
-            model = SwinUnetGAN.load_from_checkpoint(hparams.checkpoint)
+        case "vit_unet":
+            model = ViTUnetGAN.load_from_checkpoint(hparams.checkpoint)
             model.freeze()
 
-    if model is None:
-        raise ValueError(f"Incorrect model name ({hparams.model})")
+        case _:
+            raise ValueError(f"Incorrect model name ({hparams.model})")
 
     data_module = ImageDataModule(
         hparams.input_dir,
@@ -159,7 +159,7 @@ if __name__ == "__main__":
             "res50_unet",
             "resv2_unet",
             "resnext_unet",
-            "swin_unet",
+            "vit_unet",
             "palette",
         ],
     )

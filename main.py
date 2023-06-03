@@ -7,7 +7,7 @@ from models.pix2pix import Pix2Pix
 from models.palette import Palette
 from models.attention_unet import AttentionUnetGAN
 from models.res_unet import ResUnetGAN
-from models.swin_unet import SwinUnetGAN
+from models.vit_unet import ViTUnetGAN
 from dataset import ImageDataModule
 from callbacks.ema import EMACallback
 
@@ -91,15 +91,15 @@ def main(hparams):
                 l1_lambda=hparams.l1_lambda,
             )
 
-        case "swin_unet":
-            model = SwinUnetGAN(
+        case "vit_unet":
+            model = ViTUnetGAN(
                 in_channels=3,
                 out_channels=3,
                 l1_lambda=hparams.l1_lambda,
             )
 
-    if model is None:
-        raise ValueError(f"Incorrect model name ({hparams.model})")
+        case _:
+            raise ValueError(f"Incorrect model name ({hparams.model})")
 
     data_module = ImageDataModule(
         hparams.input_dir,
@@ -209,7 +209,7 @@ if __name__ == "__main__":
             "res50_unet",
             "resv2_unet",
             "resnext_unet",
-            "swin_unet",
+            "vit_unet",
             "palette",
         ],
     )

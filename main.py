@@ -7,7 +7,7 @@ from models.pix2pix import Pix2Pix
 from models.palette import Palette
 from models.attention_unet import AttentionUnetGAN
 from models.res_unet import ResUnetGAN
-from models.vit_unet import ViTUnetGAN
+from models.trans_unet import TransUnetGAN
 from dataset import ImageDataModule
 from callbacks.ema import EMACallback
 
@@ -91,10 +91,14 @@ def main(hparams):
                 l1_lambda=hparams.l1_lambda,
             )
 
-        case "vit_unet":
-            model = ViTUnetGAN(
+        case "trans_unet":
+            model = TransUnetGAN(
                 in_channels=3,
                 out_channels=3,
+                image_size=256,
+                channel_mults=channel_mults,
+                patch_size=2,
+                num_heads=8,
                 l1_lambda=hparams.l1_lambda,
             )
 
@@ -209,7 +213,7 @@ if __name__ == "__main__":
             "res50_unet",
             "resv2_unet",
             "resnext_unet",
-            "vit_unet",
+            "trans_unet",
             "palette",
         ],
     )

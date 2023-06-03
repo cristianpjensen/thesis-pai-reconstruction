@@ -12,7 +12,7 @@ from models.pix2pix import Pix2Pix
 from models.palette import Palette
 from models.attention_unet import AttentionUnetGAN
 from models.res_unet import ResUnetGAN
-from models.vit_unet import ViTUnetGAN
+from models.trans_unet import TransUnetGAN
 from reporting.depth_ssim import depth_ssim
 from dataset import ImageDataModule
 from models.utils import denormalize, to_int
@@ -37,8 +37,8 @@ def main(hparams):
             model = ResUnetGAN.load_from_checkpoint(hparams.checkpoint)
             model.freeze()
 
-        case "vit_unet":
-            model = ViTUnetGAN.load_from_checkpoint(hparams.checkpoint)
+        case "trans_unet":
+            model = TransUnetGAN.load_from_checkpoint(hparams.checkpoint)
             model.freeze()
 
         case _:
@@ -159,7 +159,7 @@ if __name__ == "__main__":
             "res50_unet",
             "resv2_unet",
             "resnext_unet",
-            "vit_unet",
+            "trans_unet",
             "palette",
         ],
     )

@@ -12,7 +12,7 @@ class TransUnetGAN(UnetWrapper):
         in_channels: int = 3,
         out_channels: int = 3,
         image_size: int = 256,
-        channel_mults: tuple[int] = (1, 2, 4, 8),
+        channel_mults: tuple[int] = (1, 2, 4, 4),
         patch_size: int = 2,
         num_heads: int = 8,
         dropout: float = 0.5,

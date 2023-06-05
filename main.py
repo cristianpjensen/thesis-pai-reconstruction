@@ -103,7 +103,7 @@ def main(hparams):
                 out_channels=3,
                 image_size=256,
                 channel_mults=channel_mults,
-                patch_size=2,
+                patch_size=4,
                 num_heads=8,
                 dropout=hparams.dropout,
                 loss_type=hparams.loss_type,

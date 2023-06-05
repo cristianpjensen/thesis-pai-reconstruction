@@ -28,7 +28,6 @@ def main(hparams):
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
                 loss_type=hparams.loss_type,
-                l1_lambda=hparams.l1_lambda,
             )
 
         case "attention_unet":
@@ -38,7 +37,6 @@ def main(hparams):
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
                 loss_type=hparams.loss_type,
-                l1_lambda=hparams.l1_lambda,
             )
 
         case "palette":
@@ -51,6 +49,7 @@ def main(hparams):
                 dropout=hparams.dropout,
                 num_res_blocks=2,
                 num_heads=4,
+                schedule_type=hparams.schedule_type,
             )
 
         case "res18_unet":
@@ -61,7 +60,6 @@ def main(hparams):
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
                 loss_type=hparams.loss_type,
-                l1_lambda=hparams.l1_lambda,
             )
 
         case "res50_unet":
@@ -72,7 +70,6 @@ def main(hparams):
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
                 loss_type=hparams.loss_type,
-                l1_lambda=hparams.l1_lambda,
             )
 
         case "resv2_unet":
@@ -83,7 +80,6 @@ def main(hparams):
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
                 loss_type=hparams.loss_type,
-                l1_lambda=hparams.l1_lambda,
             )
 
         case "resnext_unet":
@@ -94,7 +90,6 @@ def main(hparams):
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
                 loss_type=hparams.loss_type,
-                l1_lambda=hparams.l1_lambda,
             )
 
         case "trans_unet":
@@ -107,7 +102,6 @@ def main(hparams):
                 num_heads=8,
                 dropout=hparams.dropout,
                 loss_type=hparams.loss_type,
-                l1_lambda=hparams.l1_lambda,
             )
 
         case _:
@@ -165,20 +159,17 @@ if __name__ == "__main__":
         type=pathlib.Path,
         help="Target images directory path",
     )
-    parser.add_argument("-l1", "--l1-lambda", default=50, type=int)
     parser.add_argument("-e", "--epochs", default=200, type=int)
     parser.add_argument("-s", "--steps", default=-1, type=int)
-    parser.add_argument("-bs", "--batch-size", default=2, type=int)
-    parser.add_argument("-vs", "--val-size", default=0.3, type=float)
+    parser.add_argument("--batch-size", default=2, type=int)
+    parser.add_argument("--val-size", default=0.3, type=float)
     parser.add_argument(
-        "-ve",
         "--val-epochs",
         default=10,
         help="Validation run every n epochs.",
         type=int
     )
     parser.add_argument(
-        "-p",
         "--precision",
         default="32",
         help="Floating-point precision"
@@ -211,10 +202,14 @@ if __name__ == "__main__":
         type=float,
     )
     parser.add_argument(
-        "-l",
         "--loss-type",
         default="gan",
         choices=["gan", "ssim", "psnr", "ssim+psnr", "mse"],
+    )
+    parser.add_argument(
+        "--schedule-type",
+        default="linear",
+        choices=["linear", "cosine"],
     )
     parser.add_argument(
         "-m",

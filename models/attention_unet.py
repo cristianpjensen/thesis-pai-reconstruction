@@ -19,8 +19,6 @@ class AttentionUnetGAN(UnetWrapper):
     :param dropout: Dropout percentage used in some of the decoder blocks.
     :param loss_type: Loss type. One of "gan", "ssim", "psnr", "mse",
         "ssim+psnr".
-    :param l1_lambda: How much the L1 loss should be weighted in the loss
-        function.
 
     :input: [N x in_channels x H x W]
     :output: [N x out_channels x H x W]
@@ -34,7 +32,6 @@ class AttentionUnetGAN(UnetWrapper):
         channel_mults: tuple[int] = (1, 2, 4, 8, 8, 8, 8, 8),
         dropout: float = 0.5,
         loss_type: Literal["gan", "ssim", "psnr", "ssim+psnr", "mse"] = "gan",
-        l1_lambda: float = 50,
     ):
         unet = AttentionUnet(
             in_channels,
@@ -43,7 +40,7 @@ class AttentionUnetGAN(UnetWrapper):
             dropout=dropout,
         )
 
-        super().__init__(unet, loss_type=loss_type, l1_lambda=l1_lambda)
+        super().__init__(unet, loss_type=loss_type)
 
         self.example_input_array = torch.Tensor(2, in_channels, 256, 256)
         self.save_hyperparameters()

@@ -17,7 +17,6 @@ class TransUnetGAN(UnetWrapper):
         num_heads: int = 8,
         dropout: float = 0.5,
         loss_type: Literal["gan", "ssim", "psnr", "ssim+psnr", "mse"] = "gan",
-        l1_lambda: int = 50,
     ):
         unet = TransUnet(
             in_channels,
@@ -29,7 +28,7 @@ class TransUnetGAN(UnetWrapper):
             dropout=dropout,
         )
 
-        super().__init__(unet, loss_type=loss_type, l1_lambda=l1_lambda)
+        super().__init__(unet, loss_type=loss_type)
 
         self.example_input_array = torch.Tensor(2, in_channels, 256, 256)
         self.save_hyperparameters()

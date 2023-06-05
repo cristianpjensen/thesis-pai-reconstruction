@@ -12,8 +12,6 @@ class UnetWrapper(pl.LightningModule):
     :param unet: U-net model.
     :param loss_type: Loss function for the U-net. One of "gan", "ssim",
         "psnr", "mse", "ssim+psnr".
-    :param l1_lambda: If `loss="gan"`, this is the weight of the L1 loss in the
-        loss function.
 
     :input: [N x C x H x W]
     :output: [N x C x H x W]
@@ -24,7 +22,6 @@ class UnetWrapper(pl.LightningModule):
         self,
         unet: nn.Module,
         loss_type: Literal["gan", "ssim", "psnr", "ssim+psnr" "mse"] = "gan",
-        l1_lambda: int = 50,
     ):
         super().__init__()
         self.automatic_optimization = False
@@ -32,10 +29,8 @@ class UnetWrapper(pl.LightningModule):
         self.unet = unet
         self.loss_type = loss_type
 
-        self.l1_lambda = None
         self.discriminator = None
         if loss_type == "gan":
-            self.l1_lambda = l1_lambda
             self.discriminator = Discriminator()
             self.discriminator.apply(init_weights)
 
@@ -53,7 +48,7 @@ class UnetWrapper(pl.LightningModule):
             )
             l1_loss = F.l1_loss(pred, target)
 
-            return bce_loss + self.l1_lambda * l1_loss
+            return bce_loss + 50 * l1_loss
 
         if self.loss_type == "ssim":
             return -ssim(denormalize(pred), denormalize(target))

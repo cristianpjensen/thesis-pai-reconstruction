@@ -8,6 +8,7 @@ from torchvision.io import write_png
 import pytorch_lightning as pl
 from tqdm import tqdm
 import os
+from typing import Literal
 from .guided_diffusion.unet import UNet
 from .utils import denormalize, to_int, ssim, psnr
 
@@ -25,6 +26,7 @@ class Palette(pl.LightningModule):
         should be added after the residual blocks.
     :param num_heads: Number of heads used by all attention layers.
     :param dropout: Dropout percentage.
+    :param schedule_type: Noise schedule type. Either cosine or linear.
 
     """
 
@@ -38,6 +40,7 @@ class Palette(pl.LightningModule):
         attention_res: tuple[int] = (8,),
         num_heads: int = 4,
         dropout: float = 0.2,
+        schedule_type: Literal["linear", "cosine"] = "linear",
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -58,9 +61,21 @@ class Palette(pl.LightningModule):
             image_size=256,
         )
 
-        # Training scheduler
-        self.diffusion = DiffusionModel(1e-6, 0.01, 2000, device=self.device)
-        self.diffusion_inf = DiffusionModel(1e-4, 0.09, 1000, device=self.device)
+        # Noise schedules
+        self.diffusion = DiffusionModel(
+            schedule_type,
+            2000,
+            1e-6,
+            0.01,
+            device=self.device,
+        )
+        self.diffusion_inf = DiffusionModel(
+            schedule_type,
+            1000,
+            1e-4,
+            0.09,
+            device=self.device,
+        )
 
     def forward(self, x, output_process=False):
         batch_size = x.shape[0]
@@ -216,11 +231,27 @@ class Palette(pl.LightningModule):
 
 
 class DiffusionModel(nn.Module):
-    def __init__(self, start, end, timesteps: int, device="cpu"):
+    def __init__(
+        self,
+        schedule_type: Literal["linear", "cosine"],
+        timesteps: int,
+        start: float = 1e-6,
+        end: float = 0.01,
+        device="cpu",
+    ):
         super().__init__()
 
         self.timesteps = timesteps
-        betas = torch.linspace(start, end, timesteps).to(device)
+
+        match schedule_type:
+            case "linear":
+                betas = linear_beta_schedule(timesteps, start, end)
+
+            case "cosine":
+                betas = cosine_beta_schedule(timesteps)
+
+            case _:
+                raise ValueError(f"{schedule_type} is not supported.")
 
         self.register_buffer("alphas", 1 - betas)
         self.register_buffer("gammas", torch.cumprod(self.alphas, axis=0))
@@ -295,3 +326,23 @@ class DiffusionModel(nn.Module):
         """
 
         return values[t].view(-1, 1, 1, 1)
+
+
+def cosine_beta_schedule(timesteps: int, s: float = 0.008) -> torch.Tensor:
+    """Cosine schedule as proposed in (Nichol and Dhariwal, 2021)."""
+
+    steps = timesteps + 1
+    x = torch.linspace(0, timesteps, steps)
+    gammas = torch.cos((torch.pi / 2) * ((x / timesteps) + s) / (1 + s))
+    gammas = gammas / gammas[0]
+    betas = 1 - (gammas[1:] / gammas[:-1])
+
+    return torch.clamp(betas, 0.0001, 0.9999)
+
+
+def linear_beta_schedule(
+    timesteps: int,
+    start: float = 1e-6,
+    end: float = 0.01,
+) -> torch.Tensor:
+    return torch.linspace(start, end, timesteps)

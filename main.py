@@ -157,8 +157,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("-e", "--epochs", default=200, type=int)
     parser.add_argument("-s", "--steps", default=-1, type=int)
-    parser.add_argument("--batch-size", default=2, type=int)
-    parser.add_argument("--val-size", default=0.3, type=float)
+    parser.add_argument("--batch-size", default=8, type=int)
+    parser.add_argument("--val-size", default=0.2, type=float)
     parser.add_argument(
         "--val-epochs",
         default=10,
@@ -185,10 +185,10 @@ if __name__ == "__main__":
         """,
     )
     parser.add_argument(
-        "--attention-mults",
-        default="8",
+        "--attention-res",
+        default="8,4,2",
         help="""
-            At what channel multiples attention should be used, if the model
+            At what downsample multiples attention should be used, if the model
             supports it. Should be comma-separated powers of 2.
         """,
     )

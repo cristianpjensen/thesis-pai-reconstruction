@@ -21,8 +21,8 @@ class Palette(pl.LightningModule):
     :param in_channels: Input channels.
     :param out_channels: Output channels.
     :param channel_mults: Channel multipliers for each level of the U-net.
-    :param attention_res: Channel multipliers at which an attention layer
-        should be added after the residual blocks.
+    :param attention_res: Downsample rates at which attention blocks should be
+        added after the residual blocks.
     :param num_heads: Number of heads used by all attention layers.
     :param dropout: Dropout percentage.
     :param schedule_type: Noise schedule type. Either cosine or linear.
@@ -34,9 +34,9 @@ class Palette(pl.LightningModule):
         self,
         in_channels: int = 3,
         out_channels: int = 3,
-        channel_mults: tuple[int] = (1, 2, 4, 8),
-        attention_res: tuple[int] = (8,),
-        dropout: float = 0.2,
+        channel_mults: tuple[int] = (1, 1, 2, 2, 4, 4),
+        attention_res: tuple[int] = (16, 8),
+        dropout: float = 0.1,
         schedule_type: Literal["linear", "cosine"] = "linear",
         learn_var: bool = False,
     ):
@@ -51,7 +51,7 @@ class Palette(pl.LightningModule):
             in_channel=in_channels * 2,
             out_channel=out_channels * 2 if learn_var else out_channels,
             res_blocks=2,
-            inner_channel=64,
+            inner_channel=128,
             channel_mults=channel_mults,
             attn_res=attention_res,
             num_heads=4,
@@ -159,28 +159,13 @@ class Palette(pl.LightningModule):
 
         y_pred, process_array = self.forward(x, output_process=True)
 
-        # Write diffusion processes of the model.
-        for ind, process in enumerate(process_array):
-            process_images = process.chunk(9)
-            process = torch.cat([
-                torch.cat([
-                    process_images[0].squeeze(0),
-                    process_images[1].squeeze(0),
-                    process_images[2].squeeze(0),
-                ], dim=2),
-                torch.cat([
-                    process_images[3].squeeze(0),
-                    process_images[4].squeeze(0),
-                    process_images[5].squeeze(0),
-                ], dim=2),
-                torch.cat([
-                    process_images[6].squeeze(0),
-                    process_images[7].squeeze(0),
-                    process_images[8].squeeze(0),
-                ], dim=2),
-            ], dim=1)
+        # Write diffusion processes of the model
+        for ind, process_images in enumerate(process_array):
+            process = process_images[0]
+            white_border = torch.ones((process.shape[0], process.shape[1], 2))
 
-            index = batch_size * batch_idx + ind
+            for image in process_images[1:]:
+                process = torch.cat([process, white_border, image], dim=2)
 
             wandb_logger.log_image(
                 key="process",
@@ -192,20 +177,19 @@ class Palette(pl.LightningModule):
                 os.path.join(
                     self.logger.log_dir,
                     str(self.current_epoch + 1),
-                    f"process_{index}.png",
+                    f"process_{batch_size * batch_idx + ind}.png",
                 ),
                 compression_level=0,
             )
 
-        # Write outputs of the model.
+        # Write outputs of the model
         for ind, y_tx in enumerate(y_pred):
-            index = batch_size * batch_idx + ind
             write_png(
                 to_int(denormalize(y_tx)).cpu(),
                 os.path.join(
                     self.logger.log_dir,
                     str(self.current_epoch + 1),
-                    f"output_{index}.png",
+                    f"output_{batch_size * batch_idx + ind}.png",
                 ),
                 compression_level=0,
             )

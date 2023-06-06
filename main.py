@@ -17,7 +17,7 @@ torch.set_float32_matmul_precision("medium")
 
 def main(hparams):
     channel_mults = [int(x) for x in hparams.channel_mults.split(",")]
-    att_mults = [int(x) for x in hparams.attention_mults.split(",")]
+    att_res = [int(x) for x in hparams.attention_res.split(",")]
 
     model = None
     match hparams.model:
@@ -44,7 +44,7 @@ def main(hparams):
                 in_channels=3,
                 out_channels=3,
                 channel_mults=channel_mults,
-                attention_res=att_mults,
+                attention_res=att_res,
                 dropout=hparams.dropout,
                 schedule_type=hparams.schedule_type,
                 learn_var=hparams.learn_variance,

@@ -70,10 +70,8 @@ class Palette(pl.LightningModule):
             device=self.device,
         )
         self.diffusion_inf = DiffusionModel(
-            schedule_type,
-            1000,
-            1e-4,
-            0.09,
+            "cosine",
+            100,
             learn_var=learn_var,
             device=self.device,
         )
@@ -160,7 +158,7 @@ class Palette(pl.LightningModule):
         y_pred, process_array = self.forward(x, output_process=True)
 
         # Write diffusion processes of the model
-        for ind, process_images in enumerate(process_array):
+        for ind, process_images in enumerate(process_array.cpu()):
             process = process_images[0]
             white_border = torch.ones((process.shape[0], process.shape[1], 2))
 

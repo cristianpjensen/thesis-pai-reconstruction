@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from .utils import denormalize, init_weights, ssim, psnr
 from typing import Literal
+from .utils import denormalize, init_weights, ssim, psnr, rmse
 
 
 class UnetWrapper(pl.LightningModule):
@@ -147,12 +147,13 @@ class UnetWrapper(pl.LightningModule):
         pred = self.unet(x)
         loss = self.loss(x, pred, target)
 
-        ssim_ = ssim(denormalize(pred), denormalize(target))
-        psnr_ = psnr(denormalize(pred), denormalize(target))
+        den_pred = denormalize(pred)
+        den_target = denormalize(target)
 
         self.log("loss", loss, prog_bar=True)
-        self.log("train_ssim", ssim_, prog_bar=True)
-        self.log("train_psnr", psnr_, prog_bar=True)
+        self.log("train_ssim", ssim(den_pred, den_target), prog_bar=True)
+        self.log("train_psnr", psnr(den_pred, den_target), prog_bar=True)
+        self.log("train_rmse", rmse(den_pred, den_target), prog_bar=True)
 
         self.unet.zero_grad(set_to_none=True)
         self.manual_backward(loss)
@@ -172,11 +173,12 @@ class UnetWrapper(pl.LightningModule):
                 images=[denormalize(y)],
             )
 
-        g_ssim = ssim(denormalize(pred), denormalize(target))
-        g_psnr = psnr(denormalize(pred), denormalize(target))
+        den_pred = denormalize(pred)
+        den_target = denormalize(target)
 
-        self.log("val_ssim", g_ssim, prog_bar=True)
-        self.log("val_psnr", g_psnr, prog_bar=True)
+        self.log("val_ssim", ssim(den_pred, den_target), prog_bar=True)
+        self.log("val_psnr", psnr(den_pred, den_target), prog_bar=True)
+        self.log("val_rmse", rmse(den_pred, den_target), prog_bar=True)
 
 
 class DiscriminatorBlock(nn.Module):

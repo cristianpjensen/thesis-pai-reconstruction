@@ -11,7 +11,7 @@ import os
 import math
 from typing import Literal
 from .guided_diffusion.unet import UNet
-from .utils import denormalize, to_int, ssim, psnr
+from .utils import denormalize, to_int, ssim, psnr, rmse
 
 
 class Palette(pl.LightningModule):
@@ -197,16 +197,12 @@ class Palette(pl.LightningModule):
                 images=[denormalize(y_tx)],
             )
 
-        self.log(
-            "val_ssim",
-            ssim(denormalize(y_pred), denormalize(y_0)),
-            prog_bar=True,
-        )
-        self.log(
-            "val_psnr",
-            psnr(denormalize(y_pred), denormalize(y_0)),
-            prog_bar=True,
-        )
+        den_y_pred = denormalize(y_pred)
+        den_y_0 = denormalize(y_0)
+
+        self.log("val_ssim", ssim(den_y_pred, den_y_0), prog_bar=True)
+        self.log("val_psnr", psnr(den_y_pred, den_y_0), prog_bar=True)
+        self.log("val_rmse", rmse(den_y_pred, den_y_0), prog_bar=True)
 
 
 class DiffusionModel(nn.Module):

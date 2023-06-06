@@ -4,6 +4,7 @@ import torchvision.transforms as transforms
 from torchmetrics.functional import (
     structural_similarity_index_measure,
     peak_signal_noise_ratio,
+    mean_squared_error,
 )
 
 
@@ -37,3 +38,7 @@ def ssim(pred: torch.Tensor, target: torch.Tensor):
 
 def psnr(pred: torch.Tensor, target: torch.Tensor):
     return peak_signal_noise_ratio(pred, target, data_range=1.0)
+
+
+def rmse(pred: torch.Tensor, target: torch.Tensor):
+    return mean_squared_error(pred, target, squared=False)

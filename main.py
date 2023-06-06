@@ -43,13 +43,11 @@ def main(hparams):
             model = Palette(
                 in_channels=3,
                 out_channels=3,
-                inner_channels=64,
                 channel_mults=channel_mults,
                 attention_res=att_mults,
                 dropout=hparams.dropout,
-                num_res_blocks=2,
-                num_heads=4,
                 schedule_type=hparams.schedule_type,
+                learn_var=hparams.learn_variance,
             )
 
         case "res18_unet":
@@ -96,10 +94,8 @@ def main(hparams):
             model = TransUnetGAN(
                 in_channels=3,
                 out_channels=3,
-                image_size=256,
-                channel_mults=channel_mults,
                 patch_size=4,
-                num_heads=8,
+                channel_mults=channel_mults,
                 dropout=hparams.dropout,
                 loss_type=hparams.loss_type,
             )
@@ -210,6 +206,11 @@ if __name__ == "__main__":
         "--schedule-type",
         default="linear",
         choices=["linear", "cosine"],
+    )
+    parser.add_argument(
+        "--learn-variance",
+        default=False,
+        action=argparse.BooleanOptionalAction,
     )
     parser.add_argument(
         "-m",

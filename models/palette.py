@@ -128,12 +128,15 @@ class Palette(pl.LightningModule):
         if self.learn_var:
             noise_pred, var_pred = model_output.split(x.shape[1], dim=1)
 
-        mse_loss = F.mse_loss(noise_pred, noise)
-        vlb_loss = self.diffusion.vlb_term(model_output, y_0, y_t, t)
-        loss = mse_loss + 0.001 * vlb_loss
+        loss = F.mse_loss(noise_pred, noise)
+        vlb_loss = self.diffusion.vlb_term(model_output, y_0, y_t, t).mean()
 
-        self.log("mse_loss", mse_loss, prog_bar=True)
+        self.log("mse_loss", loss, prog_bar=True)
         self.log("vlb_loss", vlb_loss, prog_bar=True)
+
+        if self.learn_var:
+            loss += 0.001 * vlb_loss
+
         self.log("loss", loss, prog_bar=True)
 
         return loss

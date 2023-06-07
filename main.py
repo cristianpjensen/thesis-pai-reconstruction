@@ -112,10 +112,11 @@ def main(hparams):
     )
 
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
-        save_top_k=3,
+        save_top_k=1,
         monitor="val_ssim",
         mode="max",
         filename="checkpoint-{epoch:02d}-{val_ssim:.2f}-{val_psnr:.2f}",
+        save_last=True,
     )
 
     wandb_logger = pl.loggers.WandbLogger(

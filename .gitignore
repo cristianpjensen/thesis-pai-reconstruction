@@ -141,5 +141,5 @@ output/
 
 test*
 jobs/
-preds/
 wandb/
+reports/

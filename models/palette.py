@@ -230,6 +230,8 @@ class DiffusionModel(nn.Module):
             case _:
                 raise ValueError(f"{schedule_type} is not supported.")
 
+        betas = betas.to(device)
+
         self.register_buffer("alphas", 1 - betas)
         self.register_buffer("gammas", torch.cumprod(self.alphas, axis=0))
         self.register_buffer(

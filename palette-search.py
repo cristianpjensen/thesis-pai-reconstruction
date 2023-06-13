@@ -25,8 +25,8 @@ def main(hparams):
 
     val_data = data_module.val_dataloader()
 
-    starts = torch.logspace(-8, -2, 20)
-    ends = torch.logspace(-6, -1, 20)
+    starts = torch.logspace(-7, -2, 20)
+    ends = torch.logspace(-5, -1, 20)
     grid = torch.cartesian_prod(starts, ends)
 
     output = "start,end,ssim\n"
@@ -44,9 +44,14 @@ def main(hparams):
         ssims = []
         for batch in val_data:
             x, y = batch
+            x = x.to(model.device)
+            y = y.to(model.device)
 
-            y_t = torch.randn_like(x)
-            for i in tqdm(reversed(range(diffusion.timesteps))):
+            y_t = torch.randn_like(x, device=model.device)
+            for i in tqdm(
+                reversed(range(diffusion.timesteps)),
+                total=diffusion.timesteps,
+            ):
                 t = torch.full((hparams.batch_size,), i, device=x.device)
                 y_t = diffusion.backward(x, y_t, t, model.unet)
 

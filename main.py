@@ -115,7 +115,7 @@ def main(hparams):
         save_top_k=1,
         monitor="val_ssim",
         mode="max",
-        filename="checkpoint-{epoch:02d}-{val_ssim:.2f}-{val_psnr:.2f}",
+        filename="best",
         save_last=True,
     )
 

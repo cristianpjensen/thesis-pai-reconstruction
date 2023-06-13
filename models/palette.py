@@ -243,7 +243,7 @@ class DiffusionModel(nn.Module):
     def forward(self, y_0, t):
         """
         :param y_0: [N x C x H x W]
-        :param y: [N]
+        :param t: [N]
         :returns: y_noised [N x C x H x W], noise [N x C x H x W], gamma [N]
 
         """

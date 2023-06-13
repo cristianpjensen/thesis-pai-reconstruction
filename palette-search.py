@@ -32,6 +32,10 @@ def main(hparams):
     output = "start,end,ssim\n"
 
     for start, end in grid:
+        # No diffusion process if start value is greater than the end value
+        if start >= end:
+            continue
+
         diffusion = DiffusionModel(
             "linear",
             timesteps=100,

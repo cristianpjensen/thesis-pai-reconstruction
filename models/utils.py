@@ -29,7 +29,10 @@ def init_weights(module: nn.Module):
 
 
 def get_parameter_count(model: nn.Module):
-    return sum(p.numel() for p in model.parameters())
+    if isinstance(model, nn.Module):
+        return sum(p.numel() for p in model.parameters())
+
+    return 0
 
 
 def ssim(pred: torch.Tensor, target: torch.Tensor):

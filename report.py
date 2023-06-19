@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from torchmetrics.functional import (
     peak_signal_noise_ratio as psnr,
     structural_similarity_index_measure as ssim,
@@ -40,8 +41,16 @@ def main(hparams):
             model = TransUnetGAN.load_from_checkpoint(hparams.checkpoint)
             model.freeze()
 
+        case "identity":
+            model = lambda x: x
+
         case _:
             raise ValueError(f"Incorrect model name ({hparams.model})")
+
+    if isinstance(model, nn.Module):
+        device = model.device
+    else:
+        device = "cpu"
 
     data_module = ImageDataModule(
         hparams.input_dir,
@@ -52,7 +61,7 @@ def main(hparams):
     data_module.setup("predict")
     dataloader = data_module.predict_dataloader()
 
-    preds = [model(batch[0].to(model.device)) for batch in dataloader]
+    preds = [model(batch[0].to(device)) for batch in dataloader]
     preds = torch.cat(preds, axis=0)
     preds = denormalize(preds).cpu()
 
@@ -60,13 +69,22 @@ def main(hparams):
     targets = torch.cat(targets, axis=0)
     targets = denormalize(targets).cpu()
 
-    ssims, ssim_images = ssim(
-        preds,
-        targets,
-        data_range=1.0,
-        return_full_image=True,
-        reduction="none",
-    )
+    ssims = []
+    ssim_images = []
+
+    for pred, target in zip(preds.split(64), targets.split(64)):
+        current_ssim, current_ssim_images = ssim(
+            preds,
+            targets,
+            data_range=1.0,
+            return_full_image=True,
+            reduction="none",
+        )
+        ssims.append(current_ssim)
+        ssim_images.append(current_ssim_images)
+
+    ssims = torch.cat(ssims)
+    ssim_images = torch.cat(ssim_images)
 
     # Output average SSIM over depth and standard deviation
     ssim_over_depth = depth_ssim(preds, targets)
@@ -110,7 +128,7 @@ def main(hparams):
         )
 
     # Output mean statistics over entire test dataset
-    ssim_stat = ssim(preds, targets, data_range=1.0)
+    ssim_stat = ssims.mean()
     psnr_stat = psnr(preds, targets, data_range=1.0)
     rmse_stat = mse(preds, targets, squared=False)
     parameter_count = get_parameter_count(model)
@@ -196,6 +214,7 @@ if __name__ == "__main__":
             "resnext_unet",
             "trans_unet",
             "palette",
+            "identity",
         ],
     )
     args = parser.parse_args()

@@ -53,10 +53,8 @@ def main(hparams):
         device = "cpu"
 
     data_module = ImageDataModule(
-        hparams.input_dir,
-        hparams.target_dir,
+        hparams.data,
         batch_size=hparams.batch_size,
-        normalize=True,
     )
     data_module.setup("predict")
     dataloader = data_module.predict_dataloader()
@@ -69,13 +67,15 @@ def main(hparams):
     targets = torch.cat(targets, axis=0)
     targets = denormalize(targets).cpu()
 
+    # Compute SSIM, PSNR, and MSE per image
+    psnrs = []
     ssims = []
+    mses = []
     ssim_images = []
-
     for pred, target in zip(preds.split(64), targets.split(64)):
         current_ssim, current_ssim_images = ssim(
-            preds,
-            targets,
+            pred,
+            target,
             data_range=1.0,
             return_full_image=True,
             reduction="none",
@@ -83,8 +83,20 @@ def main(hparams):
         ssims.append(current_ssim)
         ssim_images.append(current_ssim_images)
 
+        current_psnr = torch.tensor([
+            psnr(p, t, data_range=1.0) for p, t in zip(pred, target)
+        ])
+        psnrs.append(current_psnr)
+
+        current_mse = torch.tensor([
+            mse(p, t) for p, t in zip(pred, target)
+        ])
+        mses.append(current_mse)
+
     ssims = torch.cat(ssims)
     ssim_images = torch.cat(ssim_images)
+    psnrs = torch.cat(psnrs)
+    mses = torch.cat(mses)
 
     # Output average SSIM over depth and standard deviation
     ssim_over_depth = depth_ssim(preds, targets)
@@ -109,7 +121,6 @@ def main(hparams):
         write_png(
             to_int(pred),
             os.path.join(outputs_dir, f"{str(index).zfill(5)}.png"),
-            compression_level=0,
         )
 
     # Output SSIM maps
@@ -129,22 +140,39 @@ def main(hparams):
 
     # Output mean statistics over entire test dataset
     ssim_stat = ssims.mean()
-    psnr_stat = psnr(preds, targets, data_range=1.0)
+    psnr_stat = psnrs.mean()
     rmse_stat = mse(preds, targets, squared=False)
     parameter_count = get_parameter_count(model)
 
     with open(os.path.join(report_dir, "stats.txt"), "w") as f:
         f.write(f"SSIM: {ssim_stat}\n")
-        f.write(f"pSNR: {psnr_stat}\n")
+        f.write(f"PSNR: {psnr_stat}\n")
         f.write(f"RMSE: {rmse_stat}\n")
         f.write(f"Parameter count: {parameter_count}\n")
 
+    # Output SSIM per image
     ssim_per_image_string = "image,ssim\n"
     for index, image_ssim in enumerate(ssims):
         ssim_per_image_string += f"{str(index).zfill(5)},{image_ssim}\n"
 
     with open(os.path.join(report_dir, "ssim_per_image.csv"), "w") as f:
         f.write(ssim_per_image_string)
+
+    # Output PSNR per image
+    psnr_per_image_string = "image,psnr\n"
+    for index, image_psnr in enumerate(psnrs):
+        psnr_per_image_string += f"{str(index).zfill(5)},{image_psnr}\n"
+
+    with open(os.path.join(report_dir, "psnr_per_image.csv"), "w") as f:
+        f.write(psnr_per_image_string)
+
+    # Output RMSE per image
+    mse_per_image_string = "image,mse\n"
+    for index, image_mse in enumerate(mses):
+        mse_per_image_string += f"{str(index).zfill(5)},{image_mse}\n"
+
+    with open(os.path.join(report_dir, "mse_per_image.csv"), "w") as f:
+        f.write(mse_per_image_string)
 
 
 def depth_ssim(
@@ -189,16 +217,10 @@ if __name__ == "__main__":
         help="Path to checkpoint",
     )
     parser.add_argument(
-        "-i",
-        "--input-dir",
+        "-d",
+        "--data",
         type=pathlib.Path,
-        help="Input images directory path",
-    )
-    parser.add_argument(
-        "-t",
-        "--target-dir",
-        type=pathlib.Path,
-        help="Target images directory path",
+        help="YAML file of all data points",
     )
     parser.add_argument("-bs", "--batch-size", default=2, type=int)
     parser.add_argument(

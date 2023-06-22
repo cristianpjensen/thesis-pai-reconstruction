@@ -140,6 +140,5 @@ logs/
 output/
 
 test*
-jobs/
 wandb/
 reports/

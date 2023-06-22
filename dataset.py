@@ -3,22 +3,33 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision.io import read_image, ImageReadMode
 from torchvision import transforms
 import pytorch_lightning as pl
-from natsort import natsorted
+import yaml
 import os
 
 
 class ImageDataModule(pl.LightningDataModule):
     def __init__(
         self,
-        input_dir: str,
-        target_dir: str,
+        data_list_file: str,
         batch_size: int = 1,
         val_size: float | int = 0.2,
-        normalize: bool = False,
+        normalize: bool = True,
     ):
         super().__init__()
-        self.input_dir = input_dir
-        self.target_dir = target_dir
+
+        with open(data_list_file, "r") as f:
+            data_list = yaml.safe_load(f)
+
+        data_dir = os.path.dirname(data_list_file)
+        self.data_tuples: list[(str, str, int)] = list(map(
+            lambda x: (
+                os.path.join(data_dir, x["input"]),
+                os.path.join(data_dir, x["ground_truth"]),
+                x["noise"],
+            ),
+            data_list,
+        ))
+
         self.batch_size = batch_size
         self.val_size = val_size
         self.normalize = normalize
@@ -35,40 +46,29 @@ class ImageDataModule(pl.LightningDataModule):
 
         self.transform = transforms.Compose(trans)
 
-    def _get_pairs(self, input_dir, target_dir):
-        input_imgs = get_image_filenames(input_dir)
-        target_imgs = get_image_filenames(target_dir)
-
-        if len(input_imgs) != len(target_imgs):
-            raise Exception("There should be the same amount of input" +
-                            "images as target images")
-
-        if len(input_imgs) == 0:
-            raise Exception("No images in specified directories.")
-
-        return list(zip(input_imgs, target_imgs))
-
     def setup(self, stage: str):
         if stage == "fit":
-            batches = self._get_pairs(self.input_dir, self.target_dir)
-            split_index = round(
-                len(batches) * (1 - self.val_size)
-            ) if self.val_size < 1 else round(len(batches) - self.val_size)
-            self.train_pairs = batches[:split_index]
-            self.val_pairs = batches[split_index:]
+            data_size = len(self.data_tuples)
+            if self.val_size < 1:
+                split_index = round(data_size * (1 - self.val_size))
+            else:
+                split_index = round(data_size - self.val_size)
+
+            self.train_split = self.data_tuples[:split_index]
+            self.val_split = self.data_tuples[split_index:]
 
         if stage == "validate":
-            self.val_pairs = self._get_pairs(self.input_dir, self.target_dir)
+            self.val_split = self.data_tuples
 
         if stage == "test":
-            self.test_pairs = self._get_pairs(self.input_dir, self.target_dir)
+            self.test_split = self.data_tuples
 
         if stage == "predict":
-            self.pred_pairs = self._get_pairs(self.input_dir, self.target_dir)
+            self.pred_split = self.data_tuples
 
     def train_dataloader(self):
         return DataLoader(
-            ImageDataset(self.train_pairs, transform=self.transform),
+            ImageDataset(self.train_split, transform=self.transform),
             batch_size=self.batch_size,
             shuffle=True,
             drop_last=False,
@@ -76,7 +76,7 @@ class ImageDataModule(pl.LightningDataModule):
 
     def val_dataloader(self):
         return DataLoader(
-            ImageDataset(self.val_pairs, transform=self.transform),
+            ImageDataset(self.val_split, transform=self.transform),
             batch_size=self.batch_size,
             shuffle=False,
             drop_last=False,
@@ -84,7 +84,7 @@ class ImageDataModule(pl.LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(
-            ImageDataset(self.test_pairs, transform=self.transform),
+            ImageDataset(self.test_split, transform=self.transform),
             batch_size=self.batch_size,
             shuffle=False,
             drop_last=False,
@@ -92,7 +92,7 @@ class ImageDataModule(pl.LightningDataModule):
 
     def predict_dataloader(self):
         return DataLoader(
-            ImageDataset(self.pred_pairs, transform=self.transform),
+            ImageDataset(self.pred_split, transform=self.transform),
             batch_size=self.batch_size,
             shuffle=False,
             drop_last=False,
@@ -105,35 +105,22 @@ class ImageDataset(Dataset):
 
     def __init__(
         self,
-        paths: list[(str, str)] | list[(str,)],
+        data_tuples: list[(str, str, int)],
         transform=None,
     ):
         super().__init__()
-
-        self.paths = paths
+        self.data_tuples = data_tuples
         self.transform = transform
 
     def __len__(self):
-        return len(self.paths)
+        return len(self.data_tuples)
 
     def __getitem__(self, idx):
-        paths = self.paths[idx]
+        (input_, gt, noise) = self.data_tuples[idx]
 
-        output = []
-        for path in paths:
-            tensor = read_image(path, mode=ImageReadMode.RGB)
-            tensor = self.transform(tensor)
-            output.append(tensor.float())
+        input_tensor = read_image(input_, mode=ImageReadMode.RGB)
+        input_tensor = self.transform(input_tensor)
+        gt_tensor = read_image(gt, mode=ImageReadMode.RGB)
+        gt_tensor = self.transform(gt_tensor)
 
-        return output
-
-
-def get_image_filenames(dir: str):
-    """Find all image files in the directory and return as naturally sorted
-    list (according to the numbers in the filename)."""
-
-    return natsorted([
-        os.path.join(dir, f) for f in os.listdir(dir)
-        if os.path.isfile(os.path.join(dir, f)) and
-        os.path.splitext(f)[1].lower() in [".jpeg", ".jpg", ".png"]
-    ])
+        return input_tensor, gt_tensor, noise

@@ -104,8 +104,7 @@ def main(hparams):
             raise ValueError(f"Incorrect model name ({hparams.model})")
 
     data_module = ImageDataModule(
-        hparams.input_dir,
-        hparams.target_dir,
+        hparams.data,
         batch_size=hparams.batch_size,
         val_size=hparams.val_size,
         normalize=True,
@@ -116,7 +115,7 @@ def main(hparams):
         monitor="val_ssim",
         mode="max",
         filename="best",
-        save_last=True,
+        save_last=model == "palette",
     )
 
     wandb_logger = pl.loggers.WandbLogger(
@@ -145,16 +144,10 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("name")
     parser.add_argument(
-        "-i",
-        "--input-dir",
+        "-d",
+        "--data",
         type=pathlib.Path,
-        help="Input images directory path",
-    )
-    parser.add_argument(
-        "-t",
-        "--target-dir",
-        type=pathlib.Path,
-        help="Target images directory path",
+        help="YAML file containing filenames of images that make up the data",
     )
     parser.add_argument("-e", "--epochs", default=200, type=int)
     parser.add_argument("-s", "--steps", default=-1, type=int)

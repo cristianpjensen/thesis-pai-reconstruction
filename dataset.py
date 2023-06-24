@@ -5,18 +5,20 @@ from torchvision import transforms
 import pytorch_lightning as pl
 import yaml
 import os
+from typing import Optional
 
 
 class ImageDataModule(pl.LightningDataModule):
     def __init__(
         self,
         data_list_file: str,
+        val_list_file: Optional[str] = None,
         batch_size: int = 1,
-        val_size: float | int = 0.2,
         normalize: bool = True,
     ):
         super().__init__()
 
+        # Load data
         with open(data_list_file, "r") as f:
             data_list = yaml.safe_load(f)
 
@@ -25,13 +27,25 @@ class ImageDataModule(pl.LightningDataModule):
             lambda x: (
                 os.path.join(data_dir, x["input"]),
                 os.path.join(data_dir, x["ground_truth"]),
-                x["noise"],
             ),
             data_list,
         ))
 
+        # Load validation data
+        if val_list_file is not None:
+            with open(val_list_file, "r") as f:
+                val_list = yaml.safe_load(f)
+
+            val_dir = os.path.dirname(val_list_file)
+            self.val_tuples: list[(str, str, int)] = list(map(
+                lambda x: (
+                    os.path.join(val_dir, x["input"]),
+                    os.path.join(val_dir, x["ground_truth"]),
+                ),
+                val_list,
+            ))
+
         self.batch_size = batch_size
-        self.val_size = val_size
         self.normalize = normalize
 
         trans = [
@@ -48,14 +62,8 @@ class ImageDataModule(pl.LightningDataModule):
 
     def setup(self, stage: str):
         if stage == "fit":
-            data_size = len(self.data_tuples)
-            if self.val_size < 1:
-                split_index = round(data_size * (1 - self.val_size))
-            else:
-                split_index = round(data_size - self.val_size)
-
-            self.train_split = self.data_tuples[:split_index]
-            self.val_split = self.data_tuples[split_index:]
+            self.train_split = self.data_tuples
+            self.val_split = self.val_tuples
 
         if stage == "validate":
             self.val_split = self.data_tuples
@@ -116,11 +124,11 @@ class ImageDataset(Dataset):
         return len(self.data_tuples)
 
     def __getitem__(self, idx):
-        (input_, gt, noise) = self.data_tuples[idx]
+        (input_, gt) = self.data_tuples[idx]
 
         input_tensor = read_image(input_, mode=ImageReadMode.RGB)
         input_tensor = self.transform(input_tensor)
         gt_tensor = read_image(gt, mode=ImageReadMode.RGB)
         gt_tensor = self.transform(gt_tensor)
 
-        return input_tensor, gt_tensor, noise
+        return input_tensor, gt_tensor

@@ -115,7 +115,7 @@ class UnetWrapper(pl.LightningModule):
         return opt_g
 
     def training_step(self, batch, batch_idx):
-        x, target, _ = batch
+        x, target = batch
 
         if self.loss_type == "gan":
             opt_d = self.optimizers()[1]
@@ -164,7 +164,7 @@ class UnetWrapper(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         wandb_logger = self.loggers[1]
 
-        x, target, _ = batch
+        x, target = batch
         pred = self.forward(x)
 
         for y in pred:

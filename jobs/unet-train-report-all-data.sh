@@ -39,13 +39,11 @@ DIR=$HOME/thesis-pat-reconstruction;
 
 cd /scratch-shared/$USER
 
-for noise in 10 20 30 40 50
-do
-	name=$model-${data}${noise}db-loss_$loss;
+name=$model-${data}_all-loss_$loss;
 
-	python3 $DIR/main.py $name --model $model --channel-mults $channelmults --dropout 0.5 --no-ema --val-epochs $valepochs --epochs -1 --steps 6000 --batch-size 8 --data data/${data}/train/${noise}db.yaml --val-data data/${data}/validation/${noise}db.yaml --loss-type $loss;
+python3 $DIR/main.py $name --model $model --channel-mults $channelmults --dropout 0.5 --no-ema --val-epochs $valepochs --epochs -1 --steps 30000 --batch-size 8 --data data/${data}/train/all.yaml --val-data data/${data}/validation/all.yaml --loss-type $loss;
 
-	python3 $DIR/report.py $name --model $model --checkpoint logs/${name}/version_0/checkpoints/best.ckpt --data data/${data}/test/${noise}db.yaml --batch-size 8;
+python3 $DIR/report.py $name --model $model --checkpoint logs/${name}/version_0/checkpoints/best.ckpt --data data/${data}/test/all.yaml --batch-size 8;
 
-	python3 $DIR/report.py experimental-$name --model $model --checkpoint logs/${name}/version_0/checkpoints/best.ckpt --data data/${data}/experimental/data.yaml --batch-size 8;
+python3 $DIR/report.py experimental-$name --model $model --checkpoint logs/${name}/version_0/checkpoints/best.ckpt --data data/${data}/experimental/data.yaml --batch-size 8;
 done

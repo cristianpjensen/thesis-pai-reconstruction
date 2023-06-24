@@ -86,10 +86,12 @@ class AttentionBlock(nn.Module):
             nn.Sigmoid(),
         )
 
+        self.relu = nn.ReLU()
+
     def forward(self, x, signal):
         h_input = self.input_gate(x)
         h_signal = self.signal_gate(signal)
-        h = F.relu(h_signal + h_input)
+        h = self.relu(h_signal + h_input)
         attention = self.attention(h)
 
         return x * attention

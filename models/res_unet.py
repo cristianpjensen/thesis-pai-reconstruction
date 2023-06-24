@@ -142,24 +142,25 @@ class ResidualBlockNeXt(nn.Module):
     ):
         super().__init__()
 
-        branches = []
+        inner_width = bottleneck * cardinality
 
-        for _ in range(cardinality):
-            branch = nn.Sequential(
-                nn.Conv2d(in_channels, bottleneck, kernel_size=1),
-                nn.BatchNorm2d(bottleneck),
-                nn.ReLU(),
-                nn.Conv2d(bottleneck, bottleneck, kernel_size=3, padding=1),
-                nn.BatchNorm2d(bottleneck),
-                nn.ReLU(),
-                nn.Conv2d(bottleneck, out_channels, kernel_size=1),
-                nn.BatchNorm2d(out_channels),
-            )
-
-            branches.append(branch)
-
-        self.branches = nn.ModuleList(branches)
-        self.branches_out = nn.ReLU()
+        self.conv_block = nn.Sequential(
+            nn.Conv2d(in_channels, inner_width, kernel_size=1),
+            nn.BatchNorm2d(inner_width),
+            nn.ReLU(),
+            nn.Conv2d(
+                inner_width,
+                inner_width,
+                kernel_size=3,
+                padding=1,
+                groups=cardinality,
+            ),
+            nn.BatchNorm2d(inner_width),
+            nn.ReLU(),
+            nn.Conv2d(inner_width, out_channels, kernel_size=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU()
+        )
 
         self.conv_skip = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=1),
@@ -167,11 +168,7 @@ class ResidualBlockNeXt(nn.Module):
         ) if in_channels != out_channels else nn.Identity()
 
     def forward(self, x):
-        branches_sum = self.branches[0](x)
-        for branch in self.branches[1:]:
-            branches_sum += branch(x)
-
-        return self.branches_out(branches_sum) + self.conv_skip(x)
+        return self.conv_block(x) + self.conv_skip(x)
 
 
 res_blocks: dict[ResType, nn.Module] = {

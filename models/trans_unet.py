@@ -11,7 +11,7 @@ class TransUnetGAN(UnetWrapper):
         self,
         in_channels: int = 3,
         out_channels: int = 3,
-        channel_mults: tuple[int] = (1, 2, 4, 4),
+        channel_mults: tuple[int] = (1, 2, 2, 4, 4),
         patch_size: int = 2,
         dropout: float = 0.5,
         loss_type: Literal["gan", "ssim", "psnr", "ssim+psnr", "mse"] = "gan",

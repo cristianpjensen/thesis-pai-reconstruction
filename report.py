@@ -149,7 +149,7 @@ def main(hparams):
     # Count FLOPs
     flops = 0
     if isinstance(model, nn.Module):
-        input_ = torch.randn(1, 3, 256, 256)
+        input_ = torch.randn(1, 3, 256, 256).to(device)
         flops = FlopCountAnalysis(model, input_)
         flops = flops.total()
 

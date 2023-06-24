@@ -150,35 +150,10 @@ class Palette(pl.LightningModule):
             os.mkdir(epoch_dir)
 
     def validation_step(self, batch, batch_idx):
-        wandb_logger = self.loggers[1]
-
         x, y_0 = batch
         batch_size = x.shape[0]
 
         y_pred, process_array = self.forward(x, output_process=True)
-
-        # Write diffusion processes of the model
-        for ind, process_images in enumerate(process_array.cpu()):
-            process = process_images[0]
-            white_border = torch.ones((process.shape[0], process.shape[1], 2))
-
-            for image in process_images[1:]:
-                process = torch.cat([process, white_border, image], dim=2)
-
-            wandb_logger.log_image(
-                key="process",
-                images=[denormalize(process)],
-            )
-
-            write_png(
-                to_int(denormalize(process)).cpu(),
-                os.path.join(
-                    self.logger.log_dir,
-                    str(self.current_epoch + 1),
-                    f"process_{batch_size * batch_idx + ind}.png",
-                ),
-                compression_level=0,
-            )
 
         # Write outputs of the model
         for ind, y_tx in enumerate(y_pred):
@@ -190,11 +165,6 @@ class Palette(pl.LightningModule):
                     f"output_{batch_size * batch_idx + ind}.png",
                 ),
                 compression_level=0,
-            )
-
-            wandb_logger.log_image(
-                key="predictions",
-                images=[denormalize(y_tx)],
             )
 
         den_y_pred = denormalize(y_pred)

@@ -162,16 +162,8 @@ class UnetWrapper(pl.LightningModule):
         self.untoggle_optimizer(opt_g)
 
     def validation_step(self, batch, batch_idx):
-        wandb_logger = self.loggers[1]
-
         x, target = batch
         pred = self.forward(x)
-
-        for y in pred:
-            wandb_logger.log_image(
-                key="predictions",
-                images=[denormalize(y)],
-            )
 
         den_pred = denormalize(pred)
         den_target = denormalize(target)

@@ -118,10 +118,6 @@ def main(hparams):
         save_last=model == "palette",
     )
 
-    wandb_logger = pl.loggers.WandbLogger(
-        project="pat-reconstruction",
-        name=hparams.name,
-    )
     csv_logger = pl.loggers.CSVLogger("logs", name=hparams.name)
 
     trainer = pl.Trainer(
@@ -129,7 +125,7 @@ def main(hparams):
         max_steps=hparams.steps,
         log_every_n_steps=10,
         check_val_every_n_epoch=hparams.val_epochs,
-        logger=[csv_logger, wandb_logger],
+        logger=[csv_logger],
         precision=hparams.precision,
         callbacks=[
             EMACallback(0.9999),

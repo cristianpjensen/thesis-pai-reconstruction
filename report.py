@@ -7,17 +7,17 @@ from torchmetrics.functional import (
 )
 from torchvision.io import write_png
 from argparse import ArgumentParser
-import thop
 import pathlib
 import os
+from fvcore.nn import FlopCountAnalysis
 from models.pix2pix import Pix2Pix
 from models.palette import Palette
 from models.guided_diffusion.unet import QKVAttentionLegacy, QKVAttention
 from models.attention_unet import AttentionUnetGAN
 from models.res_unet import ResUnetGAN
 from models.trans_unet import TransUnetGAN
+from models.utils import denormalize, to_int, get_parameter_count
 from dataset import ImageDataModule
-from models.utils import denormalize, to_int
 
 
 def main(hparams):
@@ -51,21 +51,6 @@ def main(hparams):
 
     if isinstance(model, nn.Module):
         device = model.device
-
-        # Count MACs and parameters
-        input = torch.randn(1, 3, 256, 256)
-        macs, params = thop.profile(
-            model,
-            inputs=(input,),
-            custom_ops={
-                QKVAttention: QKVAttention.count_flops,
-                QKVAttentionLegacy: QKVAttentionLegacy.count_flops,
-            },
-            verbose=False,
-            report_missing=True,
-        )
-
-        macs, params = thop.clever_format([macs, params], "%.3f")
     else:
         device = "cpu"
 
@@ -159,13 +144,21 @@ def main(hparams):
     ssim_stat = ssims.mean()
     psnr_stat = psnrs.mean()
     rmse_stat = mse(preds, targets, squared=False)
+    parameter_count = get_parameter_count(model)
+
+    # Count FLOPs
+    flops = 0
+    if isinstance(model, nn.Module):
+        input_ = torch.randn(1, 3, 256, 256)
+        flops = FlopCountAnalysis(model, input_)
+        flops = flops.total()
 
     with open(os.path.join(report_dir, "stats.txt"), "w") as f:
         f.write(f"SSIM: {ssim_stat}\n")
         f.write(f"PSNR: {psnr_stat}\n")
         f.write(f"RMSE: {rmse_stat}\n")
-        f.write(f"MACs: {macs}\n")
-        f.write(f"Parameter count: {params}")
+        f.write(f"FLOPs: {flops}\n")
+        f.write(f"Parameter count: {parameter_count}\n")
 
     # Output SSIM per image
     ssim_per_image_string = "image,ssim\n"

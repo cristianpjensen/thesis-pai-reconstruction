@@ -12,7 +12,6 @@ import os
 from fvcore.nn import FlopCountAnalysis
 from models.pix2pix import Pix2Pix
 from models.palette import Palette
-from models.guided_diffusion.unet import QKVAttentionLegacy, QKVAttention
 from models.attention_unet import AttentionUnetGAN
 from models.res_unet import ResUnetGAN
 from models.trans_unet import TransUnetGAN

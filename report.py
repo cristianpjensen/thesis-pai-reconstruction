@@ -43,7 +43,7 @@ def main(hparams):
             model.freeze()
 
         case "identity":
-            model = lambda x: x
+            def model(x): return x
 
         case _:
             raise ValueError(f"Incorrect model name ({hparams.model})")
@@ -60,13 +60,14 @@ def main(hparams):
     data_module.setup("predict")
     dataloader = data_module.predict_dataloader()
 
-    preds = [model(batch[0].to(device)) for batch in dataloader]
+    preds = [denormalize(model(batch[0].to(device))) for batch in dataloader]
     preds = torch.cat(preds, axis=0)
-    preds = denormalize(preds).cpu()
+    preds = preds.cpu()
+    # preds = denormalize(preds).cpu()
 
-    targets = [batch[1] for batch in dataloader]
+    targets = [denormalize(batch[1]) for batch in dataloader]
     targets = torch.cat(targets, axis=0)
-    targets = denormalize(targets).cpu()
+    targets = targets.cpu()
 
     # Compute SSIM, PSNR, and MSE per image
     psnrs = []

@@ -139,6 +139,8 @@ checkpoints/
 logs/
 output/
 
+slurm*
 test*
 wandb/
 reports/
+reports-experimental/

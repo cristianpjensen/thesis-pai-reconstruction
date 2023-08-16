@@ -23,8 +23,8 @@ def main(hparams):
     match hparams.model:
         case "pix2pix":
             model = Pix2Pix(
-                in_channels=3,
-                out_channels=3,
+                in_channels=1,
+                out_channels=1,
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
                 loss_type=hparams.loss_type,
@@ -32,8 +32,8 @@ def main(hparams):
 
         case "attention_unet":
             model = AttentionUnetGAN(
-                in_channels=3,
-                out_channels=3,
+                in_channels=1,
+                out_channels=1,
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
                 loss_type=hparams.loss_type,
@@ -41,8 +41,8 @@ def main(hparams):
 
         case "palette":
             model = Palette(
-                in_channels=3,
-                out_channels=3,
+                in_channels=1,
+                out_channels=1,
                 channel_mults=channel_mults,
                 attention_res=att_res,
                 dropout=hparams.dropout,
@@ -52,8 +52,8 @@ def main(hparams):
 
         case "res18_unet":
             model = ResUnetGAN(
-                in_channels=3,
-                out_channels=3,
+                in_channels=1,
+                out_channels=1,
                 res_type="18",
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
@@ -62,8 +62,8 @@ def main(hparams):
 
         case "res50_unet":
             model = ResUnetGAN(
-                in_channels=3,
-                out_channels=3,
+                in_channels=1,
+                out_channels=1,
                 res_type="50",
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
@@ -72,8 +72,8 @@ def main(hparams):
 
         case "resv2_unet":
             model = ResUnetGAN(
-                in_channels=3,
-                out_channels=3,
+                in_channels=1,
+                out_channels=1,
                 res_type="v2",
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
@@ -82,8 +82,8 @@ def main(hparams):
 
         case "resnext_unet":
             model = ResUnetGAN(
-                in_channels=3,
-                out_channels=3,
+                in_channels=1,
+                out_channels=1,
                 res_type="next",
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,
@@ -92,8 +92,8 @@ def main(hparams):
 
         case "trans_unet":
             model = TransUnetGAN(
-                in_channels=3,
-                out_channels=3,
+                in_channels=1,
+                out_channels=1,
                 patch_size=4,
                 channel_mults=channel_mults,
                 dropout=hparams.dropout,

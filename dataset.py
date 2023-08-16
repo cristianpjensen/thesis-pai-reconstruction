@@ -126,9 +126,9 @@ class ImageDataset(Dataset):
     def __getitem__(self, idx):
         (input_, gt) = self.data_tuples[idx]
 
-        input_tensor = read_image(input_, mode=ImageReadMode.RGB)
+        input_tensor = read_image(input_, mode=ImageReadMode.GRAY)
         input_tensor = self.transform(input_tensor)
-        gt_tensor = read_image(gt, mode=ImageReadMode.RGB)
+        gt_tensor = read_image(gt, mode=ImageReadMode.GRAY)
         gt_tensor = self.transform(gt_tensor)
 
         return input_tensor, gt_tensor

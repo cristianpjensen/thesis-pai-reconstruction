@@ -223,7 +223,8 @@ class DiffusionModel(nn.Module):
         noise = torch.randn_like(y_0) * (t > 0).view(-1, 1, 1, 1)
         gamma_prev = self.get_value(self.gammas_prev, t)
         gamma_cur = self.get_value(self.gammas, t)
-        gamma = (gamma_cur-gamma_prev) * torch.rand_like(gamma_cur) + gamma_prev
+        gamma = (gamma_cur-gamma_prev) * \
+            torch.rand_like(gamma_cur) + gamma_prev
 
         mean = torch.sqrt(gamma) * y_0
         variance = torch.sqrt(1 - gamma) * noise
@@ -315,9 +316,11 @@ class DiffusionModel(nn.Module):
             model_output = torch.cat([noise_pred.detach(), var_interp], dim=1)
 
         true_mean, true_log_variance = self.q_mean_variance(y_0, y_t, t)
-        pred_mean, pred_log_variance = self.p_mean_variance(model_output, y_t, t)
+        pred_mean, pred_log_variance = self.p_mean_variance(
+            model_output, y_t, t)
 
-        kl = normal_kl(true_mean, true_log_variance, pred_mean, pred_log_variance)
+        kl = normal_kl(true_mean, true_log_variance,
+                       pred_mean, pred_log_variance)
         # Take mean for each item in batch
         kl = kl.mean(dim=[1, 2, 3]) / math.log(2.0)
 

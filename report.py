@@ -5,6 +5,7 @@ from torchmetrics.functional import (
     structural_similarity_index_measure as ssim,
     mean_squared_error as mse,
 )
+from matplotlib import colormaps
 from torchvision.io import write_png
 from argparse import ArgumentParser
 import pathlib
@@ -120,8 +121,8 @@ def main(hparams):
         os.mkdir(outputs_dir)
 
     for index, pred in enumerate(preds):
-        write_png(
-            to_int(pred),
+        output_hot_image(
+            pred,
             os.path.join(outputs_dir, f"{str(index).zfill(5)}.png"),
         )
 
@@ -215,6 +216,22 @@ def depth_ssim(
         ssims.append((mean, std))
 
     return torch.tensor(ssims)
+
+
+def output_hot_image(img: torch.Tensor, filename: str):
+    """Outputs a hot-encoded image using the matplotlib hot colormap.
+
+    :arg img: [1 x H x W]
+    :arg filename: File location to save output.
+
+    """
+
+    colormap = colormaps["hot"]
+    img = colormap(img)
+    img = img[0, :, :, :3]
+    img = torch.Tensor(img)
+    img = torch.permute(img, (2, 0, 1))
+    write_png(to_int(img), filename)
 
 
 if __name__ == "__main__":

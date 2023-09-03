@@ -107,7 +107,7 @@ class Palette(pl.LightningModule):
         )
         return [optimizer], [scheduler]
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch):
         x, y_0 = batch
 
         # Sample from p(gamma)
@@ -124,7 +124,7 @@ class Palette(pl.LightningModule):
 
         noise_pred = model_output
         if self.learn_var:
-            noise_pred, var_pred = model_output.split(x.shape[1], dim=1)
+            noise_pred, _ = model_output.split(x.shape[1], dim=1)
 
         loss = F.mse_loss(noise_pred, noise)
         vlb_loss = self.diffusion.vlb_term(model_output, y_0, y_t, t).mean()
@@ -152,8 +152,7 @@ class Palette(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y_0 = batch
         batch_size = x.shape[0]
-
-        y_pred, process_array = self.forward(x, output_process=True)
+        y_pred = self.forward(x)
 
         # Write outputs of the model
         for ind, y_tx in enumerate(y_pred):

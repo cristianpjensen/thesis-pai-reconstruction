@@ -64,7 +64,7 @@ class TransUnet(nn.Module):
 
         # Encoder blocks
         encoders = []
-        for level, mult in enumerate(channel_mults):
+        for mult in channel_mults:
             channels = mult * 64
             encoders.append(EncoderBlock(in_channels, channels))
             in_channels = channels
@@ -83,7 +83,7 @@ class TransUnet(nn.Module):
 
         # Decoder blocks
         decoders = []
-        for level, mult in reversed(list(enumerate(channel_mults[:-1]))):
+        for mult in reversed(list(channel_mults[:-1])):
             channels = mult * 64
             decoders.append(DecoderBlock(in_channels, channels))
             in_channels = channels * 2

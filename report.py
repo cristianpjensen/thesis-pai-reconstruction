@@ -21,7 +21,6 @@ from dataset import ImageDataModule
 
 
 def main(hparams):
-    model = None
     match hparams.model:
         case "pix2pix":
             model = Pix2Pix.load_from_checkpoint(hparams.checkpoint)
@@ -190,7 +189,7 @@ def depth_ssim(
     preds: torch.Tensor,
     targets: torch.Tensor,
     num_depths: int = 16
-) -> list[(float, float)]:
+) -> torch.Tensor:
     """Compute mean and standard deviation of SSIM over depth of images. The
     depth goes in the y-axis of the image.
 
@@ -226,7 +225,7 @@ def output_hot_image(img: torch.Tensor, filename: str):
 
     """
 
-    colormap = colormaps["hot"]
+    colormap = colormaps["afmhot"]
     img = colormap(img)
     img = img[0, :, :, :3]
     img = torch.Tensor(img)

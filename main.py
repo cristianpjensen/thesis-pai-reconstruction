@@ -143,13 +143,19 @@ if __name__ == "__main__":
         "-d",
         "--data",
         type=pathlib.Path,
-        help="YAML file containing filenames of images that make up the training data",
+        help="""
+            YAML file containing filenames of images that make up the training
+            data.
+        """,
     )
     parser.add_argument(
         "-vd",
         "--val-data",
         type=pathlib.Path,
-        help="YAML file containing filenames of images that make up the validation data",
+        help="""
+            YAML file containing filenames of images that make up the
+            validation data.
+        """,
     )
     parser.add_argument("-e", "--epochs", default=200, type=int)
     parser.add_argument("-s", "--steps", default=-1, type=int)

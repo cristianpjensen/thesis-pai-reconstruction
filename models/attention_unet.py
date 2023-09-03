@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from typing import Literal
 from .wrapper import UnetWrapper
 from .pix2pix import EncoderBlock, DecoderBlock

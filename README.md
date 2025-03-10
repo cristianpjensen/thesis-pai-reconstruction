@@ -1,6 +1,10 @@
 # Deep Learning for Photoacoustic Imaging Reconstruction
 
-Implementation of models for my bachelor's thesis.
+Implementation of models for the work presented in the following articles.
+
+Cristian P. Jensen, Kalloor Joseph Francis, and Navchetan Awasthi "Image depth improvement in photoacoustic imaging using transformer based generative adversarial networks", Proc. SPIE PC12842, Photons Plus Ultrasound: Imaging and Sensing 2024, PC128421V (13 March 2024); https://doi.org/10.1117/12.3001537
+
+Please cite this if you find this useful in your work.
 
 ## Models
 

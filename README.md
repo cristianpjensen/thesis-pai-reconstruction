@@ -2,7 +2,7 @@
 
 Implementation of models for the work presented in the following articles.
 
-Jensen, Cristian Perez, Navchetan Awasthi, and Kalloor Joseph Francis. "Transformer-based optical attenuation compensation and denoising in photoacoustic imaging." Journal of Biomedical Optics 30.11 (2025): 116004-116004.
+Jensen, Cristian Perez, Navchetan Awasthi, and Kalloor Joseph Francis. "Transformer-based optical attenuation compensation and denoising in photoacoustic imaging." Journal of Biomedical Optics 30.11 (2025): 116004-116004.https://www.spiedigitallibrary.org/journals/journal-of-biomedical-optics/volume-30/issue-11/116004/Transformer-based-optical-attenuation-compensation-and-denoising-in-photoacoustic-imaging/10.1117/1.JBO.30.11.116004.full
 
 Cristian P. Jensen, Kalloor Joseph Francis, and Navchetan Awasthi "Image depth improvement in photoacoustic imaging using transformer based generative adversarial networks", Proc. SPIE PC12842, Photons Plus Ultrasound: Imaging and Sensing 2024, PC128421V (13 March 2024); https://doi.org/10.1117/12.3001537
 
